@@ -232,34 +232,33 @@ class PT_DQN():
         math.exp(-1. * decay / self.EPS_DECAY)
     
   def select_action(self,state):
-    sample = random.random()
     eps_threshold = self.get_epsilon()
     self.steps_done += 1
-    if sample > eps_threshold:
-      #print("select_action: policy action")
-      return self.get_policy_action(state)
+    if random.random() > eps_threshold:
+      action = self.get_policy_action(state)
+      #print(f"select_action: policy_action = {action}")
+      return action
     else:
-      # low = self.env.env.action_space.low
-      # high = self.env.env.action_space.high
-      # sample = np.random.uniform(low, high, size=self.env.env.action_space.shape[0])
-
       sample = self.env.env.action_space.sample()
-      #print(f"select_action: sample = {sample} {type(sample)}")
+      #print(f"select_action: sample = {sample}")
       return sample
 
   def plot_progress(self, block = False):
       fig = plt.figure(num=1)
       plt.clf()
-      gs = gridspec.GridSpec(3, 1, height_ratios=[3, 1, 1])  # 3 rows, height ratio 3:1:1
+      gs = gridspec.GridSpec(4, 1, height_ratios=[3, 1, 1, 1])  # 4 rows, height ratio 3:1:1:1
+      subplot = -1
+      fontsize = 9
 
       # Plot episode durations by episode
-      ax1 = fig.add_subplot(gs[0])  
-      ax1.set_xlabel('Episode')
+      subplot += 1
+      ax = fig.add_subplot(gs[subplot])  
+      ax.set_xlabel('Episode', fontsize=fontsize)
       #ax1.set_ylabel('Duration')
       #values_to_plot = torch.tensor(self.meta_state.get_values("episode_durations"), dtype=torch.float)
-      ax1.set_ylabel('Reward Total')
+      ax.set_ylabel('Reward Total', fontsize=fontsize)
       values_to_plot = torch.tensor(self.meta_state.get_values("reward_total"), dtype=torch.float)
-      ax1.plot(values_to_plot.numpy())
+      ax.plot(values_to_plot.numpy())
       
       # Draw a smoothed graph
       smooth_size = 30
@@ -268,17 +267,25 @@ class PT_DQN():
           #smoothed = torch.cat((torch.zeros(smooth_size-1), smoothed))
           smoothed = smoothed.numpy()
           self.average_duration = smoothed[-1]
-          ax1.plot(np.arange(smooth_size//2, smooth_size//2+len(smoothed)),smoothed)
+          ax.plot(np.arange(smooth_size//2, smooth_size//2+len(smoothed)),smoothed)
           
+      # Plot epsilon length (in steps) by episode
+      subplot += 1
+      ax = fig.add_subplot(gs[subplot])  
+      ax.set_ylabel('Episode length', fontsize=fontsize)
+      ax.plot(self.meta_state.get_values("episode_durations"))
+
       # Plot epsilon by episode
-      ax2 = fig.add_subplot(gs[1])  
-      ax2.set_ylabel('Epsilon')
-      ax2.plot(self.meta_state.get_values("epsilon"))
+      subplot += 1
+      ax = fig.add_subplot(gs[subplot])  
+      ax.set_ylabel('Epsilon', fontsize=fontsize)
+      ax.plot(self.meta_state.get_values("epsilon"))
 
       # Plot memory size by episode
-      ax3 = fig.add_subplot(gs[2])  
-      ax3.set_ylabel('Memory size')
-      ax3.plot(self.meta_state.get_values("memory_size"))
+      subplot += 1
+      ax = fig.add_subplot(gs[subplot])  
+      ax.set_ylabel('Memory size', fontsize=fontsize)
+      ax.plot(self.meta_state.get_values("memory_size"))
 
       plt.pause(0.01)  # pause a bit so that plots are updated
       plt.show(block=block)
@@ -398,7 +405,7 @@ class PT_DQN():
                   
         if visualize_every != 0:
           if i_episode % visualize_every == 0:
-            self.visualize_model(1)
+            self.visualize_model(num_episodes = 1)
 
   def episode_ended(self, steps, reward_total):
     self.episodes_done += 1
@@ -408,7 +415,7 @@ class PT_DQN():
     self.meta_state.add_value("memory_size",len(self.memory))
     self.meta_state.add_value("episode_durations",steps + 1)
     self.meta_state.add_value("reward_total",reward_total)
-    print(f"episode_ended: steps = {steps+1}, reward_total = {reward_total}") 
+    print(f"episode_ended: steps = {steps+1}, reward_total = {reward_total:0.1f}") 
 
     if self.meta_state.get_latest_value("episodes")%5 == 0:  # save every 5 episodes to avoid slowing things down too much
       self.save()
@@ -429,7 +436,7 @@ class PT_DQN():
         
         state = torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
         if terminated or truncated:
-          print(f"Episode {i_episode + 1} finished after {t + 1} timesteps")
+          print(f"visualize_model: episode {i_episode + 1} finished after {t + 1} timesteps")
           break
     env_visualize.close()
 
