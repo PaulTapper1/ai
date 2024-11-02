@@ -28,12 +28,14 @@ class PT_GYM_Custom(rl_dqn.PT_GYM):
     observation, reward, terminated, truncated, _ =  self.env.step(action)
     self.num_steps += 1
     if truncated:
-      print("Truncated")
+      print("Episode truncated")
     else:
       if terminated:
         if reward > 50: # if landed
-          reward += 50 - self.num_steps * self.speed_reward  # reduce reward as it takes took long to encourage fast landing
-        print(f"Terminated, reward = {reward}")
+          reward += 50 - self.num_steps * self.speed_reward  # reduce reward by long it took to land, to encourage fast landing
+          print(f"Landed successfully (step reward = {reward})")
+        else:
+          print(f"Crashed (step reward = {reward})")
     return observation, reward, terminated, truncated, _
 def creat_env_fn_LunarLander(render_mode=None):
   return PT_GYM_Custom(render_mode)
@@ -50,7 +52,7 @@ settings_iterator = rl.SettingsIterator( [
 num_episodes = 1000
 while settings_iterator.iterate():
   ptdqn = rl_dqn.PT_DQN(creat_env_fn_LunarLander, settings_iterator.settings)
-  # ptdqn.visualize_model(5)
+  ptdqn.visualize_model(10)
   ptdqn.loop_episodes(num_episodes,visualize_every=0)
 
 ptdqn.plot_progress(True)

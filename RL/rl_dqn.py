@@ -5,6 +5,8 @@
 # import gymnasium as gym
 # gym.pprint_registry()
 
+# see also https://github.com/openai/gym/wiki/Leaderboard
+
 import gymnasium as gym
 import math
 import random
@@ -81,6 +83,7 @@ class PT_GYM():
   def reset(self):
     return self.env.reset()
   def step(self, action):
+    #print(f"step. action = {action}")
     return self.env.step(action)
   def render(self):
     return self.env.render()
@@ -100,7 +103,7 @@ class PT_DQN():
     self.GAMMA = 0.99
     self.EPS_START = 0.9
     self.EPS_END = 0.05
-    self.EPS_DECAY = 20000 #1000
+    self.EPS_DECAY = 5000 #1000
     self.TAU = 0.005
     self.LR = 1e-4
     self.settings = settings
@@ -117,9 +120,14 @@ class PT_DQN():
     self.creat_env_fn = creat_env_fn
     self.env = self.creat_env_fn()
     self.gym_name = self.env.gym_name
+    self.action_space_is_discrete = ( True if f"{self.env.env.action_space}".startswith("Discrete") else False )
 
     # Get number of actions from gym action space
-    self.n_actions = self.env.env.action_space.n
+    if self.action_space_is_discrete:
+      self.n_actions = self.env.env.action_space.n
+    else:
+      self.n_actions = self.env.env.action_space.shape[0]
+
     # Get the number of state observations
     state, info = self.env.reset()
     self.n_observations = len(state)
@@ -202,11 +210,18 @@ class PT_DQN():
     print(f"Loaded {filename} ({len(self.meta_state)} episodes)")
 
   def get_policy_action(self,state):
-    with torch.no_grad():    
-      # t.max(1) will return the largest column value of each row.
-      # second column on max result is index of where max element was
-      # found, so we pick action with the larger expected reward.
-      return self.policy_net(state).max(1).indices.view(1, 1)
+    with torch.no_grad():
+      raw_action = self.policy_net(state)
+      if self.action_space_is_discrete:
+        # t.max(1) will return the largest column value of each row.
+        # second column on max result is index of where max element was
+        # found, so we pick action with the larger expected reward.
+        action = raw_action.max(1).indices.view(1, 1).item()
+      else:   # Continuous
+        action = raw_action.cpu().detach().numpy()[0]
+      #print(f"get_policy_action: action = {action} {type(action)}")
+      return action
+
 
   def get_epsilon(self):
     return self.EPS_END + (self.EPS_START - self.EPS_END) * \
@@ -217,9 +232,12 @@ class PT_DQN():
     eps_threshold = self.get_epsilon()
     self.steps_done += 1
     if sample > eps_threshold:
+      #print("select_action: policy action")
       return self.get_policy_action(state)
     else:
-      return torch.tensor([[self.env.env.action_space.sample()]], device=self.device, dtype=torch.long)
+      sample = self.env.env.action_space.sample()
+      #print(f"select_action: sample = {sample} {type(sample)}")
+      return sample
 
   def plot_progress(self, block = False):
       fig = plt.figure(num=1)
@@ -320,7 +338,7 @@ class PT_DQN():
     
     for steps in count():
         action = self.select_action(state)
-        observation, reward, terminated, truncated, _ = self.env.step(action.item())
+        observation, reward, terminated, truncated, _ = self.env.step(action)
         reward = torch.tensor([reward], device=self.device)
         reward_total += reward.cpu().item()
         done = terminated or truncated
@@ -331,7 +349,9 @@ class PT_DQN():
             next_state = torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
 
         # Store the transition in memory
-        self.memory.push(state, action, next_state, reward)
+        action_tensor = torch.tensor([[action]], device=self.device, dtype=torch.long)
+        #print(f"do_episode: action = {action} {type(action)}, action_tensor = {action_tensor} {type(action_tensor)}")
+        self.memory.push(state, action_tensor, next_state, reward)
 
         # Move to the next state
         state = next_state
@@ -388,8 +408,9 @@ class PT_DQN():
       state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
       for t in count():
         env_visualize.render()  # Render the environment
-        action = self.policy_net(state).max(1).indices.view(1, 1)
-        observation, reward, terminated, truncated, _ = env_visualize.step(action.item())
+        action = self.get_policy_action(state)
+        observation, reward, terminated, truncated, _ = env_visualize.step(action)
+        
         state = torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
         if terminated or truncated:
           print(f"Episode {i_episode + 1} finished after {t + 1} timesteps")
