@@ -70,10 +70,9 @@ class DQN(nn.Module):
             )
 
     # Called with either one element to determine next action, or a batch
-    # during optimization. Returns tensor([[left0exp,right0exp]...]).
+    # during optimization.
     def forward(self, x):
-        logits = self.linear_relu_stack(x)
-        return logits
+        return self.linear_relu_stack(x)
 
 class PT_GYM():
   def __init__(self, gym_name, render_mode=None):
@@ -103,7 +102,8 @@ class PT_DQN():
     self.GAMMA = 0.99
     self.EPS_START = 0.9
     self.EPS_END = 0.05
-    self.EPS_DECAY = 5000 #1000
+    #self.EPS_DECAY = 5000 #1000   # based on steps
+    self.EPS_DECAY = 50   # based on episodes
     self.TAU = 0.005
     self.LR = 1e-4
     self.settings = settings
@@ -151,6 +151,7 @@ class PT_DQN():
     self.memory = ReplayMemory(10000)
 
     self.steps_done = 0
+    self.episodes_done = 0
     self.average_duration = 0
 
     self.load_if_save_file_present()
@@ -206,6 +207,7 @@ class PT_DQN():
 
     # any fix-ups from loading the meta-state
     self.steps_done = self.meta_state.get_latest_value("steps_done")
+    self.episodes_done = len(self.meta_state)
     
     print(f"Loaded {filename} ({len(self.meta_state)} episodes)")
 
@@ -224,8 +226,10 @@ class PT_DQN():
 
 
   def get_epsilon(self):
+    #decay = self.steps_done       # epsilon based on steps
+    decay = self.episodes_done     # epsilon based on episodes
     return self.EPS_END + (self.EPS_START - self.EPS_END) * \
-        math.exp(-1. * self.steps_done / self.EPS_DECAY)
+        math.exp(-1. * decay / self.EPS_DECAY)
     
   def select_action(self,state):
     sample = random.random()
@@ -235,6 +239,10 @@ class PT_DQN():
       #print("select_action: policy action")
       return self.get_policy_action(state)
     else:
+      # low = self.env.env.action_space.low
+      # high = self.env.env.action_space.high
+      # sample = np.random.uniform(low, high, size=self.env.env.action_space.shape[0])
+
       sample = self.env.env.action_space.sample()
       #print(f"select_action: sample = {sample} {type(sample)}")
       return sample
@@ -297,7 +305,11 @@ class PT_DQN():
       # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
       # columns of actions taken. These are the actions which would've been taken
       # for each batch state according to policy_net
-      state_action_values = self.policy_net(state_batch).gather(1, action_batch)
+      if self.action_space_is_discrete:
+        state_action_values = self.policy_net(state_batch).gather(1, action_batch)
+      else:
+        state_action_values = self.policy_net(state_batch).unsqueeze(1)
+        state_action_values = torch.bmm(state_action_values, action_batch.unsqueeze(2)).squeeze(dim=2)
 
       # Compute V(s_{t+1}) for all next states.
       # Expected values of actions for non_final_next_states are computed based
@@ -349,8 +361,10 @@ class PT_DQN():
             next_state = torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
 
         # Store the transition in memory
-        action_tensor = torch.tensor([[action]], device=self.device, dtype=torch.long)
-        #print(f"do_episode: action = {action} {type(action)}, action_tensor = {action_tensor} {type(action_tensor)}")
+        if self.action_space_is_discrete:
+          action_tensor = torch.tensor([[action]], device=self.device, dtype=torch.long)
+        else:
+          action_tensor = torch.tensor(action, device=self.device, dtype=torch.float32).unsqueeze(0)
         self.memory.push(state, action_tensor, next_state, reward)
 
         # Move to the next state
@@ -387,12 +401,14 @@ class PT_DQN():
             self.visualize_model(1)
 
   def episode_ended(self, steps, reward_total):
+    self.episodes_done += 1
     self.meta_state.add_value("episodes",self.meta_state.get_latest_value("episodes") + 1)
     self.meta_state.add_value("steps_done",self.steps_done)
     self.meta_state.add_value("epsilon",self.get_epsilon())
     self.meta_state.add_value("memory_size",len(self.memory))
     self.meta_state.add_value("episode_durations",steps + 1)
     self.meta_state.add_value("reward_total",reward_total)
+    print(f"episode_ended: steps = {steps+1}, reward_total = {reward_total}") 
 
     if self.meta_state.get_latest_value("episodes")%5 == 0:  # save every 5 episodes to avoid slowing things down too much
       self.save()

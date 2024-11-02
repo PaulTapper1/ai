@@ -34,6 +34,6 @@ num_episodes = 1000
 while settings_iterator.iterate():
   ptdqn = rl_dqn.PT_DQN(creat_env_fn, settings_iterator.settings)
   #ptdqn.visualize_model(5)
-  ptdqn.loop_episodes(num_episodes,visualize_every=10)
+  ptdqn.loop_episodes(num_episodes)
 
 ptdqn.plot_progress(True)
