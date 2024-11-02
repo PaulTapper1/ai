@@ -1,0 +1,8 @@
+__pycache__/PTModel.cpython-310.pyc
+__pycache__/pytorch_utilities.cpython-310.pyc
+*/data/*
+*__pycache__*
+Categorization/.gitignore
+Categorization/.sync_journal.db
+Categorization/pytorch_MNIST_32_64_128_A_.dat
+Categorization/pytorch_MNIST_64_128_256_A_.dat
