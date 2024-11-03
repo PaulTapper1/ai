@@ -59,13 +59,22 @@ class DQN(nn.Module):
         linear_1 = settings[1]
         linear_2 = settings[2]
         
+        # self.linear_relu_stack = nn.Sequential(
+            # nn.Linear(n_observations, linear_0),
+            # nn.ReLU(),
+            # nn.Linear(linear_0, linear_1),
+            # nn.ReLU(),
+            # nn.Linear(linear_1, linear_2),
+            # nn.ReLU(),
+            # nn.Linear(linear_2, n_actions),
+            # )
         self.linear_relu_stack = nn.Sequential(
             nn.Linear(n_observations, linear_0),
-            nn.ReLU(),
+            nn.Tanh(),
             nn.Linear(linear_0, linear_1),
-            nn.ReLU(),
+            nn.Tanh(),
             nn.Linear(linear_1, linear_2),
-            nn.ReLU(),
+            nn.Tanh(),
             nn.Linear(linear_2, n_actions),
             )
 
@@ -107,6 +116,7 @@ class PT_DQN():
     self.TAU = 0.005
     self.LR = 1e-4
     self.settings = settings
+    self.MEM_SIZE = 100_000
     
     self.meta_state = rl.MetaState([
                       "episodes",
@@ -148,7 +158,7 @@ class PT_DQN():
 
     self.policy_net = DQN(self.n_observations, self.n_actions, self.settings).to(self.device)
     self.optimizer = optim.AdamW(self.policy_net.parameters(), lr=self.LR, amsgrad=True)
-    self.memory = ReplayMemory(10000)
+    self.memory = ReplayMemory(self.MEM_SIZE)
 
     self.steps_done = 0
     self.episodes_done = 0
@@ -314,24 +324,35 @@ class PT_DQN():
       # for each batch state according to policy_net
       if self.action_space_is_discrete:
         state_action_values = self.policy_net(state_batch).gather(1, action_batch)
-      else:
+        
+        # Compute V(s_{t+1}) for all next states.
+        # Expected values of actions for non_final_next_states are computed based
+        # on the "older" target_net; selecting their best reward with max(1).values
+        # This is merged based on the mask, such that we'll have either the expected
+        # state value or 0 in case the state was final.
+        next_state_values = torch.zeros(self.BATCH_SIZE, device=self.device)
+        with torch.no_grad():
+          next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1).values
+        # Compute the expected Q values
+        expected_state_action_values = (next_state_values * self.GAMMA) + reward_batch
+
+        # Compute Huber loss
+        criterion = nn.SmoothL1Loss()
+        loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
+        
+      else: # continuous action space
         state_action_values = self.policy_net(state_batch).unsqueeze(1)
         state_action_values = torch.bmm(state_action_values, action_batch.unsqueeze(2)).squeeze(dim=2)
 
-      # Compute V(s_{t+1}) for all next states.
-      # Expected values of actions for non_final_next_states are computed based
-      # on the "older" target_net; selecting their best reward with max(1).values
-      # This is merged based on the mask, such that we'll have either the expected
-      # state value or 0 in case the state was final.
-      next_state_values = torch.zeros(self.BATCH_SIZE, device=self.device)
-      with torch.no_grad():
-          next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1).values
-      # Compute the expected Q values
-      expected_state_action_values = (next_state_values * self.GAMMA) + reward_batch
+        next_state_values = torch.zeros(self.BATCH_SIZE, device=self.device)
+        with torch.no_grad():
+          next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1)[0]   
+        expected_state_action_values = (next_state_values * self.GAMMA) + reward_batch
 
-      # Compute Huber loss
-      criterion = nn.SmoothL1Loss()
-      loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
+        # Compute the loss
+        #loss = F.mse_loss(state_action_values, expected_state_action_values)
+        criterion = nn.SmoothL1Loss()
+        loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
 
       # Optimize the model
       self.optimizer.zero_grad()
@@ -355,11 +376,14 @@ class PT_DQN():
     state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
     reward_total = 0
     
+    recording = []
+    
     for steps in count():
         action = self.select_action(state)
+        recording.append([action])
         observation, reward, terminated, truncated, _ = self.env.step(action)
+        reward_total += reward
         reward = torch.tensor([reward], device=self.device)
-        reward_total += reward.cpu().item()
         done = terminated or truncated
 
         if terminated:
@@ -385,6 +409,9 @@ class PT_DQN():
 
         if done:
           self.episode_ended(steps, reward_total)
+          
+          #if reward_total > 10000: # visualize very high scoring episodes to help understand what's happening during training
+          #  self.visualize_model_from_recording(recording)
           break
     return steps
 
@@ -423,25 +450,46 @@ class PT_DQN():
     
 
   def visualize_model(self,num_episodes = 5):
-    #env_visualize = gym.make(self.gym_name, render_mode="human")  # Use "human" for visualization
     env_visualize = self.creat_env_fn(render_mode="human")  # Use "human" for visualization
 
     for i_episode in range(num_episodes):
       state, info = env_visualize.reset()
       state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
-      for t in count():
+      reward_total = 0
+
+      for steps in count():
         env_visualize.render()  # Render the environment
         action = self.get_policy_action(state)
         observation, reward, terminated, truncated, _ = env_visualize.step(action)
+        reward_total += reward
         
         state = torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
         if terminated or truncated:
-          print(f"visualize_model: episode {i_episode + 1} finished after {t + 1} timesteps")
+          print(f"visualize_model: episode {i_episode + 1} ended: steps = {steps+1}, reward_total = {reward_total:0.1f}")
+          break
+    env_visualize.close()
+
+  def visualize_model_from_recording(self,recording,num_replays=1000):
+    env_visualize = self.creat_env_fn(render_mode="human")  # Use "human" for visualization
+
+    for i_episode in range(num_replays):
+      state, info = env_visualize.reset()
+      state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
+      reward_total = 0
+
+      for steps in count():
+        env_visualize.render()  # Render the environment
+        action = recording[steps][0]
+        observation, reward, terminated, truncated, _ = env_visualize.step(action)
+        reward_total += reward
+        
+        state = torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
+        if terminated or truncated:
+          print(f"visualize_model_from_recording: episode {i_episode + 1} ended: steps = {steps+1}, reward_total = {reward_total:0.1f}")
           break
     env_visualize.close()
 
   def visualize_model_hardwired_cartpole(self,num_episodes = 5):
-    #env_visualize = gym.make(self.gym_name, render_mode="human")  # Use "human" for visualization
     env_visualize = self.creat_env_fn(render_mode="human")  # Use "human" for visualization
 
     for i_episode in range(num_episodes):
