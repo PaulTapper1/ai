@@ -29,7 +29,10 @@ GAMMA = 0.99
 LR_CRITIC = 10e-4
 LR_ACTOR = 3e-4
 
-env = gym.make('LunarLanderContinuous-v3')
+#gym_name = 'LunarLanderContinuous-v3'
+gym_name = "MountainCarContinuous-v0" # https://github.com/openai/gym/wiki/MountainCarContinuous-v0
+
+env = gym.make(gym_name)
 state, info = env.reset()
 OBS_DIM = len(state)
 ACT_DIM = env.action_space.shape[0]
@@ -48,7 +51,7 @@ ppo_agent = ppo.PPO(
 )
 
 def run(episodes, agent: ppo.PPO):
-    env_visualise = gym.make('LunarLanderContinuous-v3', render_mode="human")
+    env_visualise = gym.make(gym_name, render_mode="human")
     for _ in range(episodes):
         obs, _ = env_visualise.reset()
         done = False

@@ -83,24 +83,28 @@ class DQN(nn.Module):
     def forward(self, x):
         return self.linear_relu_stack(x)
 
-class PT_GYM():
-  def __init__(self, gym_name, render_mode=None):
-    self.gym_name = gym_name
-    self.env = self.gym_make(self.gym_name, render_mode=render_mode)
-  def gym_make(self, gym_name, render_mode):
-    return gym.make(self.gym_name, render_mode=render_mode)
-  def reset(self):
-    return self.env.reset()
-  def step(self, action):
-    #print(f"step. action = {action}")
-    return self.env.step(action)
-  def render(self):
-    return self.env.render()
-  def close(self):
-    return self.env.close()
+class PT_AlgoDqn(PT_Algo):
+  def __init__(self, creat_env_fn, settings):
+    self.creat_env_fn = creat_env_fn
+    self.env = self.creat_env_fn()
+    self.gym_name = self.env.gym_name
+    self.action_space_is_discrete = ( True if f"{self.env.env.action_space}".startswith("Discrete") else False )
 
-class PT_DQN():
-  def __init__(self, create_env_fn, settings):
+    # Get number of actions from gym action space
+    if self.action_space_is_discrete:
+      self.n_actions = self.env.env.action_space.n
+    else:
+      self.n_actions = self.env.env.action_space.shape[0]
+
+    # Get the number of state observations
+    state, info = self.env.reset()
+    self.n_observations = len(state)
+
+    super(PT_AlgoDqn, self).__init__(self.n_observations,)
+    
+    #####################################################
+    
+    
     # BATCH_SIZE is the number of transitions sampled from the replay buffer
     # GAMMA is the discount factor as mentioned in the previous section
     # EPS_START is the starting value of epsilon
@@ -117,7 +121,7 @@ class PT_DQN():
     self.TAU = 0.005
     self.LR = 1e-4
     self.settings = settings
-    self.MEM_SIZE = 10000
+    self.MEM_SIZE = 100_000
     
     self.meta_state = rl.MetaState([
                       "episodes",
@@ -126,23 +130,8 @@ class PT_DQN():
                       "memory_size",
                       "episode_durations",
                       "reward_total",
-                      "best_reward",
                       ])
     
-    self.create_env_fn = create_env_fn
-    self.env = self.create_env_fn()
-    self.gym_name = self.env.gym_name
-    self.action_space_is_discrete = ( True if f"{self.env.env.action_space}".startswith("Discrete") else False )
-
-    # Get number of actions from gym action space
-    if self.action_space_is_discrete:
-      self.n_actions = self.env.env.action_space.n
-    else:
-      self.n_actions = self.env.env.action_space.shape[0]
-
-    # Get the number of state observations
-    state, info = self.env.reset()
-    self.n_observations = len(state)
 
     # # set up matplotlib
     # is_ipython = 'inline' in matplotlib.get_backend()
@@ -161,7 +150,6 @@ class PT_DQN():
     self.policy_net = DQN(self.n_observations, self.n_actions, self.settings).to(self.device)
     self.optimizer = optim.AdamW(self.policy_net.parameters(), lr=self.LR, amsgrad=True)
     self.memory = ReplayMemory(self.MEM_SIZE)
-    self.best_net = DQN(self.n_observations, self.n_actions, self.settings).to(self.device)
 
     self.steps_done = 0
     self.episodes_done = 0
@@ -181,7 +169,6 @@ class PT_DQN():
   def save(self):
     temp_filename = "_"+str(uuid.uuid4())
     torch.save(self.policy_net.state_dict(), temp_filename+".tempnet")
-    torch.save(self.best_net.state_dict(), temp_filename+".tempbest")
     torch.save(self.memory, temp_filename+".tempmem")
     with open(temp_filename+".tempjson", 'w') as f:
       json.dump({
@@ -191,14 +178,11 @@ class PT_DQN():
     filename = self.get_save_name()
     if os.path.isfile(filename+".net"):
       os.remove(filename+".net")
-    if os.path.isfile(filename+".best"):
-      os.remove(filename+".best")
     if os.path.isfile(filename+".mem"):
       os.remove(filename+".mem")
     if os.path.isfile(filename+".json"):
       os.remove(filename+".json")
     os.rename(temp_filename+".tempnet",filename+".net")
-    os.rename(temp_filename+".tempbest",filename+".best")
     os.rename(temp_filename+".tempmem",filename+".mem")
     os.rename(temp_filename+".tempjson",filename+".json")
     print(f"Saved {filename} ({len(self.meta_state)} episodes)")
@@ -215,9 +199,6 @@ class PT_DQN():
     load_net = torch.load(filename+".net",weights_only=False)
     self.policy_net.load_state_dict(load_net)
     self.policy_net.eval()  # Set the model to evaluation mode
-    best_net = torch.load(filename+".best",weights_only=False)
-    self.best_net.load_state_dict(best_net)
-    self.best_net.eval()  # Set the model to evaluation mode
     load_mem = torch.load(filename+".mem",weights_only=False)
     self.memory = load_mem
     with open(filename+".json", 'r') as f:
@@ -231,12 +212,9 @@ class PT_DQN():
     
     print(f"Loaded {filename} ({len(self.meta_state)} episodes)")
 
-  def get_policy_action(self,state,use_best_net = False):
+  def get_policy_action(self,state):
     with torch.no_grad():
-      if use_best_net:
-        raw_action = self.best_net(state)
-      else:
-        raw_action = self.policy_net(state)
+      raw_action = self.policy_net(state)
       if self.action_space_is_discrete:
         # t.max(1) will return the largest column value of each row.
         # second column on max result is index of where max element was
@@ -269,22 +247,19 @@ class PT_DQN():
   def plot_progress(self, block = False):
       fig = plt.figure(num=1)
       plt.clf()
-      gs = gridspec.GridSpec(4, 1, height_ratios=[3, 1, 1, 1], hspace=0.5)  # 4 rows, height ratio 3:1:1:1
+      gs = gridspec.GridSpec(4, 1, height_ratios=[3, 1, 1, 1])  # 4 rows, height ratio 3:1:1:1
       subplot = -1
       fontsize = 9
-      linewidth = 1
 
       # Plot episode durations by episode
       subplot += 1
       ax = fig.add_subplot(gs[subplot])  
-      ax.set_xticks([])
+      ax.set_xlabel('Episode', fontsize=fontsize)
       #ax1.set_ylabel('Duration')
       #values_to_plot = torch.tensor(self.meta_state.get_values("episode_durations"), dtype=torch.float)
-      #values_to_plot = torch.tensor(self.meta_state.get_values("best_reward"), dtype=torch.float)
-      #ax.plot(values_to_plot.numpy(), linewidth=linewidth)
-      ax.set_title('Reward Total', fontsize=fontsize, loc="left")
+      ax.set_ylabel('Reward Total', fontsize=fontsize)
       values_to_plot = torch.tensor(self.meta_state.get_values("reward_total"), dtype=torch.float)
-      ax.plot(values_to_plot.numpy(), linewidth=linewidth)
+      ax.plot(values_to_plot.numpy())
       
       # Draw a smoothed graph
       smooth_size = 30
@@ -293,28 +268,25 @@ class PT_DQN():
           #smoothed = torch.cat((torch.zeros(smooth_size-1), smoothed))
           smoothed = smoothed.numpy()
           self.average_duration = smoothed[-1]
-          ax.plot(np.arange(smooth_size//2, smooth_size//2+len(smoothed)),smoothed, linewidth=linewidth)
+          ax.plot(np.arange(smooth_size//2, smooth_size//2+len(smoothed)),smoothed)
           
       # Plot epsilon length (in steps) by episode
       subplot += 1
       ax = fig.add_subplot(gs[subplot])  
-      ax.set_xticks([])
-      ax.set_title('Episode length', fontsize=fontsize, loc="left")
-      ax.plot(self.meta_state.get_values("episode_durations"), linewidth=linewidth)
+      ax.set_ylabel('Episode length', fontsize=fontsize)
+      ax.plot(self.meta_state.get_values("episode_durations"))
 
       # Plot epsilon by episode
       subplot += 1
       ax = fig.add_subplot(gs[subplot])  
-      ax.set_xticks([])
-      ax.set_title('Epsilon', fontsize=fontsize, loc="left")
-      ax.plot(self.meta_state.get_values("epsilon"), linewidth=linewidth)
+      ax.set_ylabel('Epsilon', fontsize=fontsize)
+      ax.plot(self.meta_state.get_values("epsilon"))
 
       # Plot memory size by episode
       subplot += 1
       ax = fig.add_subplot(gs[subplot])  
-      ax.set_xlabel('Episode', fontsize=fontsize)
-      ax.set_title('Memory size', fontsize=fontsize, loc="left")
-      ax.plot(self.meta_state.get_values("memory_size"), linewidth=linewidth)
+      ax.set_ylabel('Memory size', fontsize=fontsize)
+      ax.plot(self.meta_state.get_values("memory_size"))
 
       plt.pause(0.01)  # pause a bit so that plots are updated
       plt.show(block=block)
@@ -461,13 +433,6 @@ class PT_DQN():
     self.meta_state.add_value("memory_size",len(self.memory))
     self.meta_state.add_value("episode_durations",steps + 1)
     self.meta_state.add_value("reward_total",reward_total)
-    best_reward = self.meta_state.get_latest_value("best_reward")
-    if reward_total >= best_reward or self.episodes_done == 1:
-      best_reward = reward_total
-      self.best_net = self.policy_net
-      print(f"Updated best net to have reward {best_reward}")
-    self.meta_state.add_value("best_reward",best_reward)
-    
     print(f"episode_ended: steps = {steps+1}, reward_total = {reward_total:0.1f}") 
 
     if self.meta_state.get_latest_value("episodes")%5 == 0:  # save every 5 episodes to avoid slowing things down too much
@@ -475,10 +440,8 @@ class PT_DQN():
     self.plot_progress()
     
 
-  def visualize_model(self,num_episodes = 5,use_best_net = False):
-    env_visualize = self.create_env_fn(render_mode="human")  # Use "human" for visualization
-    if use_best_net:
-      print(f"Visualizing best net")
+  def visualize_model(self,num_episodes = 5):
+    env_visualize = self.creat_env_fn(render_mode="human")  # Use "human" for visualization
 
     for i_episode in range(num_episodes):
       state, info = env_visualize.reset()
@@ -487,7 +450,7 @@ class PT_DQN():
 
       for steps in count():
         env_visualize.render()  # Render the environment
-        action = self.get_policy_action(state,use_best_net = use_best_net)
+        action = self.get_policy_action(state)
         observation, reward, terminated, truncated, _ = env_visualize.step(action)
         reward_total += reward
         
@@ -498,7 +461,7 @@ class PT_DQN():
     env_visualize.close()
 
   def visualize_model_from_recording(self,recording,num_replays=1000):
-    env_visualize = self.create_env_fn(render_mode="human")  # Use "human" for visualization
+    env_visualize = self.creat_env_fn(render_mode="human")  # Use "human" for visualization
 
     for i_episode in range(num_replays):
       state, info = env_visualize.reset()
@@ -518,7 +481,7 @@ class PT_DQN():
     env_visualize.close()
 
   def visualize_model_hardwired_cartpole(self,num_episodes = 5):
-    env_visualize = self.create_env_fn(render_mode="human")  # Use "human" for visualization
+    env_visualize = self.creat_env_fn(render_mode="human")  # Use "human" for visualization
 
     for i_episode in range(num_episodes):
       state, info = env_visualize.reset()

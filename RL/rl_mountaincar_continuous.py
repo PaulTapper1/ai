@@ -8,25 +8,19 @@
 
 import rl_utils as rl
 import rl_dqn
-import gymnasium as gym
 
 # # to see a list of all available gyms use...
 # import gymnasium as gym
 # gym.pprint_registry()
 
-gym_name = "LunarLander-v3"  # https://gymnasium.farama.org/environments/box2d/lunar_lander/
+gym_name = "MountainCarContinuous-v0" # https://github.com/openai/gym/wiki/MountainCarContinuous-v0
 
 # customise the environment
 class PT_GYM_Custom(rl_dqn.PT_GYM):
   def __init__(self, render_mode):
     super().__init__(gym_name, render_mode)
     self.num_steps = 0
-    self.speed_reward = 0 #0.1
-  def gym_make(self, gym_name, render_mode):
-    print("gym_make with custom settings")
-    return gym.make(self.gym_name, render_mode=render_mode, continuous=False, gravity=-10.0,
-               enable_wind=True, wind_power=15.0, turbulence_power=1.5)
-        
+    self.speed_reward = 0.1
   def reset(self):
     self.num_steps = 0
     return self.env.reset()
@@ -38,7 +32,7 @@ class PT_GYM_Custom(rl_dqn.PT_GYM):
     else:
       if terminated:
         if reward > 50: # if landed
-          reward += 300 - self.num_steps * self.speed_reward  # reduce reward by long it took to land, to encourage fast landing
+          reward += 50 - self.num_steps * self.speed_reward  # reduce reward by long it took to land, to encourage fast landing
           print(f"Landed successfully (step reward = {reward})")
         else:
           print(f"Crashed (step reward = {reward})")
@@ -51,16 +45,14 @@ settings_iterator = rl.SettingsIterator( [
     [64],         # linear layer1
     [32],         # linear layer2
     ["A"]
-    #["B"]
-    #["C"]
     #["A","B","C","D","E","F"]
     #["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z"],
   ] )
 
-num_episodes = 20000
+num_episodes = 10000
 while settings_iterator.iterate():
   ptdqn = rl_dqn.PT_DQN(creat_env_fn_LunarLander, settings_iterator.settings)
-  ptdqn.visualize_model(5,use_best_net = True)
+  ptdqn.visualize_model(1)
   ptdqn.loop_episodes(num_episodes,visualize_every=0)
 
 ptdqn.plot_progress(True)
