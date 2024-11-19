@@ -66,6 +66,7 @@ class MLP(nn.Module):
 #####################################################################################
 # Actor classes
 from itertools import count
+import copy
 
 class ActorCore:
 	def select_action(self,observation):
@@ -93,6 +94,9 @@ class ActorCore:
 					print(f"visualize_model: episode {i_episode + 1} ended: steps = {steps+1}, reward_total = {reward_total:0.1f}")
 					break
 		env_visualize.close()
+		
+	def create_copy(self):
+		return copy.deepcopy(self)
 
 class MLPActor(ActorCore):
 	def __init__(self, observation_dim, action_dim, hidden_layer_sizes=[256,256],
@@ -107,6 +111,11 @@ class MLPActor(ActorCore):
 
 	def prep_observation(self, observation):
 		return torch.tensor(observation, dtype=torch.float32, device=get_device()).unsqueeze(0)
+		
+	def create_copy(self):
+		copied_object = super().create_copy()
+		copied_object.mlp.load_state_dict(self.mlp.state_dict())
+		return copied_object
 		
 class MLPActorDiscreteActions(MLPActor):
 	def __init__(self, create_env_fn, hidden_layer_sizes=[256,256],
@@ -144,18 +153,27 @@ class Saver:
 		self.filename = filename
 		self.folder = folder
 		self.data_to_save = {}
-		self.save_method = {}
 	
-	def add_data_to_save(self, extension, data, method="torch"):	# options for method are "torch" or "json"
-		self.data_to_save [extension] = data
-		self.save_method [extension] = method
+	def add_data_to_save(self, extension, data, method="torch", is_net=False):	# options for method are "torch", "json" or "saveable"
+		data_descriptor = { "data" : data, "method" : method, "is_net" : is_net }
+		self.data_to_save [extension] = data_descriptor
 	
 	def save(self):
 		temp_filename = "temp_"+str(uuid.uuid4())
-		for extension, data in self.data_to_save.items():
-			if self.save_method [extension] == "torch":
-				torch.save(data, temp_filename+"."+extension)
-			elif self.save_method [extension] == "json":
+		for extension, data_descriptor in self.data_to_save.items():
+			method = data_descriptor["method"]
+			data = data_descriptor["data"]
+			if method == "torch":
+				is_net = data_descriptor["is_net"]
+				if is_net:
+					torch.save(data.state_dict(), temp_filename+"."+extension)
+				else:
+					torch.save(data, temp_filename+"."+extension)
+			elif method == "saveable":
+				torch.save(data.to_saveable(), temp_filename+"."+extension)
+				# with open(temp_filename+"."+extension, 'w') as f:
+					# json.dump(data.to_saveable(), f, indent=2)
+			elif method == "json":
 				with open(temp_filename+"."+extension, 'w') as f:
 					json.dump(data, f, indent=2)
 			else:
@@ -165,73 +183,106 @@ class Saver:
 				os.remove(self.filename+"."+extension)
 		for extension in self.data_to_save:
 			os.rename(temp_filename+"."+extension, self.filename+"."+extension)
+		self.data_to_save = {}
 		print(f"Saved {self.filename}")
 	
 	def save_exists(self):
 		return (len(glob.glob(self.filename+".*")) > 0)
 
-	def load_data_into(self, extension, obj, method="torch", is_net=True):	# options for method are "torch" or "json"
+	def load_data_into(self, extension, obj, method="torch", is_net=False):	# options for method are "torch", "json" or "saveable"
 		if method == "torch":
-			loaded_data = torch.load(self.filename+"."+extension,weights_only=False)
+			loaded_data = torch.load(self.filename+"."+extension, weights_only=False)
 			if is_net:
 				obj.load_state_dict(loaded_data)
 				obj.eval()  					# Set the net to evaluation mode
 			else:
 				obj = loaded_data
+				print(f"memory size loaded {len(obj)}")
+		elif method == "saveable":
+			loaded_data = torch.load(self.filename+"."+extension, weights_only=False)
+			obj.from_saveable( loaded_data )
+			# with open(self.filename+"."+extension, 'r') as f:
+				# obj.from_saveable( json.load(f) )
 		elif method == "json":
 			with open(self.filename+"."+extension, 'r') as f:
-				obj = json.load(f)
+				obj = json.load(f)	# TODO
 		else:
 			print_warning(f"Unrecognised save method {method} for extension {extension}")		
 
 #####################################################################################
 # AlgoMemory
 from collections import namedtuple, deque
+import random
 
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
 class AlgoMemory(object):
 
-    def __init__(self, capacity):
-        self.memory = deque([], maxlen=capacity)
+	def __init__(self, capacity):
+		self.memory = deque([], maxlen=capacity)
 
-    def push(self, *args):
-        """Save a transition"""
-        self.memory.append(Transition(*args))
+	def push(self, *args):
+		"""Save a transition"""
+		self.memory.append(Transition(*args))
 
-    def sample(self, batch_size):
-        return random.sample(self.memory, batch_size)
+	def sample(self, batch_size):
+		return random.sample(self.memory, batch_size)
 
-    def __len__(self):
-        return len(self.memory)
+	def __len__(self):
+		return len(self.memory)
+	
+	def to_saveable(self):
+		return self.memory
+		
+	def from_saveable(self, saveable):
+		self.memory = saveable
 
 #####################################################################################
 # Logging and Graphing
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-import numpy
+import numpy as np
 
 class Logger():
 	def __init__(self):
 		self.data = {}
 		self.num_frames = 0
 		
-	def add(self, key, value):
-		if not key in self.data:
-			if self.num_frames == 0:
+	def set_frame_value(self, key, value):
+		if not key in self.data :
+			if self.num_frames == 0 :
 				self.data[key] = []
 			else:
 				print_warning(f"Adding unrecognised key {key} at frame {self.num_frames} to Logger")
 				self.data[key] = [None]*self.num_frames
 		self.data[key].append(value)
 	
+	def get_latest_value(self, key):
+		if not key in self.data :
+			#print_warning(f"Could not find key {key} in {self}")
+			return 0
+		data_list = self.data[key]
+		if len(data_list) > 0 :
+			return data_list[len(data_list)-1]
+		else:
+			return 0
+	
 	def next_frame(self):
 		self.num_frames += 1
 		for key in self.data.keys():
 			if len(self.data[key]) < self.num_frames:
 				print_warning(f"Missing {key} value for frame {self.num_frames-1}")
+				
+	def to_saveable(self):
+		return self.data
+		
+	def from_saveable(self, saveable):
+		self.data = saveable
+		self.num_frames = 0
+		if len(self.data.keys()) > 0 :
+			self.num_frames = len(self.data[next(iter(self.data))])
 		
 	def __str__(self):
 		ret = ""
@@ -254,7 +305,7 @@ class Logger():
 		linewidth = 1
 
 		for subplot, data_name in enumerate(data_to_plot):
-			ax = fig.add_subplot(gs[subplot])  
+			ax = fig.add_subplot(gs[subplot])
 			ax.set_xticks([])
 			ax.set_title(data_name, fontsize=fontsize, loc="left")
 			ax.plot(self.data[data_name], linewidth=linewidth)
@@ -262,8 +313,8 @@ class Logger():
 			# Draw a smoothed graph
 			if subplot == 0 and smooth > 0:
 				if len(self.data[data_name]) >= smooth:
-					window= numpy.ones(int(window_size))/float(window_size)
-					smoothed = numpy.convolve(interval, smooth, 'valid')
+					window = np.ones(int(smooth))/float(smooth)
+					smoothed = np.convolve(self.data[data_name], window, 'valid')
 					ax.plot(np.arange(smooth//2, smooth//2+len(smoothed)),smoothed, linewidth=linewidth)
 		
 		plt.pause(0.01)  # pause a bit so that plots are updated
@@ -287,7 +338,7 @@ class AlgoBase:
 		# EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
 		# TAU is the update rate of the target network
 		# LR is the learning rate of the ``AdamW`` optimizer
-		self.BATCH_SIZE = 128
+		self.BATCH_SIZE = 64
 		self.GAMMA = 0.99
 		self.EPS_START = 0.9
 		self.EPS_END = 0.05
@@ -298,15 +349,14 @@ class AlgoBase:
 		self.MEM_SIZE = 10000
 		
 		self.create_env_fn = create_env_fn
-		temp_env = create_env_fn()
-		self.env_name = temp_env.spec.name
-		temp_env.close()
+		self.env = create_env_fn()
+		self.env_name = self.env.spec.name
 		self.logger = Logger()
 		self.memory = AlgoMemory(self.MEM_SIZE)
 		self.saver = Saver( self.get_save_name() )
 		self.steps_done = 0
-		self.episodes_done = 0
 		self.average_duration = 0
+		self.device = get_device()
 		
 	def get_save_name(self):
 		save_name = "ptrl_"+__name__+"_"+self.env_name
@@ -319,6 +369,9 @@ class AlgoBase:
 
 	def load(self):
 		print(f"{inspect.currentframe().f_code.co_name} overload in child classes")
+		
+	def post_load_fixup(self):
+		self.steps_done = self.logger.get_latest_value("steps_done")
 		
 	def load_if_save_exists(self):
 		if self.saver.save_exists():

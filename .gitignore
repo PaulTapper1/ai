@@ -6,3 +6,9 @@ Categorization/.gitignore
 Categorization/.sync_journal.db
 Categorization/pytorch_MNIST_32_64_128_A_.dat
 Categorization/pytorch_MNIST_64_128_256_A_.dat
+ptrl/.idea/.gitignore
+ptrl/.idea/misc.xml
+ptrl/.idea/modules.xml
+ptrl/.idea/ptrl.iml
+ptrl/.idea/vcs.xml
+ptrl/.idea/inspectionProfiles/profiles_settings.xml
