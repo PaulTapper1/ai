@@ -154,30 +154,19 @@ class Saver:
 		self.folder = folder
 		self.data_to_save = {}
 	
-	def add_data_to_save(self, extension, data, method="torch", is_net=False):	# options for method are "torch", "json" or "saveable"
-		data_descriptor = { "data" : data, "method" : method, "is_net" : is_net }
+	def add_data_to_save(self, extension, data, is_net=False):
+		data_descriptor = { "data" : data, "is_net" : is_net }
 		self.data_to_save [extension] = data_descriptor
 	
 	def save(self):
 		temp_filename = "temp_"+str(uuid.uuid4())
 		for extension, data_descriptor in self.data_to_save.items():
-			method = data_descriptor["method"]
 			data = data_descriptor["data"]
-			if method == "torch":
-				is_net = data_descriptor["is_net"]
-				if is_net:
-					torch.save(data.state_dict(), temp_filename+"."+extension)
-				else:
-					torch.save(data, temp_filename+"."+extension)
-			elif method == "saveable":
-				torch.save(data.to_saveable(), temp_filename+"."+extension)
-				# with open(temp_filename+"."+extension, 'w') as f:
-					# json.dump(data.to_saveable(), f, indent=2)
-			elif method == "json":
-				with open(temp_filename+"."+extension, 'w') as f:
-					json.dump(data, f, indent=2)
+			is_net = data_descriptor["is_net"]
+			if is_net:
+				torch.save(data.state_dict(), temp_filename+"."+extension)
 			else:
-				print_warning(f"Unrecognised save method {self.save_method [extension]} for extension {extension}")
+				torch.save(data.to_saveable(), temp_filename+"."+extension)
 		for extension in self.data_to_save:
 			if os.path.isfile(self.filename+"."+extension):
 				os.remove(self.filename+"."+extension)
@@ -189,25 +178,14 @@ class Saver:
 	def save_exists(self):
 		return (len(glob.glob(self.filename+".*")) > 0)
 
-	def load_data_into(self, extension, obj, method="torch", is_net=False):	# options for method are "torch", "json" or "saveable"
-		if method == "torch":
-			loaded_data = torch.load(self.filename+"."+extension, weights_only=False)
-			if is_net:
-				obj.load_state_dict(loaded_data)
-				obj.eval()  					# Set the net to evaluation mode
-			else:
-				obj = loaded_data
-				print(f"memory size loaded {len(obj)}")
-		elif method == "saveable":
+	def load_data_into(self, extension, obj, is_net=False):
+		loaded_data = torch.load(self.filename+"."+extension, weights_only=False)
+		if is_net:
+			obj.load_state_dict(loaded_data)
+			obj.eval()  					# Set the net to evaluation mode
+		else:
 			loaded_data = torch.load(self.filename+"."+extension, weights_only=False)
 			obj.from_saveable( loaded_data )
-			# with open(self.filename+"."+extension, 'r') as f:
-				# obj.from_saveable( json.load(f) )
-		elif method == "json":
-			with open(self.filename+"."+extension, 'r') as f:
-				obj = json.load(f)	# TODO
-		else:
-			print_warning(f"Unrecognised save method {method} for extension {extension}")		
 
 #####################################################################################
 # AlgoMemory
@@ -379,8 +357,13 @@ class AlgoBase:
 		
 
 #####################################################################################
-# Settings iterations
-
+# Settings
+class Settings(dict):
+	def to_saveable(self):
+		return self
+		
+	def from_saveable(self, saveable):
+		self = saveable
 
 #####################################################################################
 # for testing

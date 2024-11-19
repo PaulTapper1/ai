@@ -9,7 +9,7 @@ from itertools import count
 class Algo(core.AlgoBase):
 	def __init__(self, create_env_fn, settings):
 		super().__init__(create_env_fn=create_env_fn, settings=settings)
-		self.settings = settings	# should be a Dict
+		self.settings = core.Settings(settings)	# should be a Dict
 		self.actor = core.MLPActorDiscreteActions(self.create_env_fn, hidden_layer_sizes=self.settings["hidden_layer_sizes"])
 		self.optimizer = optim.AdamW(self.actor.mlp.parameters(), lr=self.LR, amsgrad=True)
 		self.target_actor = self.actor.create_copy()
@@ -18,20 +18,18 @@ class Algo(core.AlgoBase):
 	def save(self):
 		self.saver.add_data_to_save( "actor",			self.actor.mlp, 		is_net=True )
 		self.saver.add_data_to_save( "target_actor",	self.target_actor.mlp, 	is_net=True )
-		self.saver.add_data_to_save( "memory",			self.memory, 			method="saveable" )
-		self.saver.add_data_to_save( "settings", 		self.settings, 			method="json" )
-		self.saver.add_data_to_save( "logger",			self.logger, 			method="saveable" )
+		self.saver.add_data_to_save( "memory",			self.memory )
+		self.saver.add_data_to_save( "settings", 		self.settings )
+		self.saver.add_data_to_save( "logger",			self.logger )
 		self.saver.save()
-		print(f"{self.__class__.__name__} save: memory size = {len(self.memory)}")
 	
 	def load(self):
 		self.saver.load_data_into( "actor",				self.actor.mlp, 		is_net=True )
 		self.saver.load_data_into( "target_actor",		self.target_actor.mlp, 	is_net=True )
-		self.saver.load_data_into( "memory",			self.memory, 			method="saveable" )
-		self.saver.load_data_into( "settings", 			self.settings, 			method="json" )
-		self.saver.load_data_into( "logger", 			self.logger, 			method="saveable" )
+		self.saver.load_data_into( "memory",			self.memory )
+		self.saver.load_data_into( "settings", 			self.settings )
+		self.saver.load_data_into( "logger", 			self.logger )
 		self.post_load_fixup();
-		print(f"{self.__class__.__name__} load: memory size = {len(self.memory)}")
 	
 	def get_epsilon(self):
 		decay = self.logger.get_latest_value("episodes")		 # epsilon based on episodes
