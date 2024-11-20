@@ -107,31 +107,31 @@ class Algo(core.AlgoBase):
 		self.target_actor.mlp.load_state_dict(target_actor_state_dict)
 		
 	def do_episode(self):
-		# Initialize the environment and get its state
-		state, info = self.env.reset()
-		state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
+		# Initialize the environment and get its observation
+		observation, info = self.env.reset()
+		observation_tensor = self.actor.to_tensor_observation(observation)
 		episode_reward = 0
-		recording = []
+		episode_recording = []
 		
 		for steps in count():
-			action = self.select_action(state)
-			recording.append([action])
+			action = self.select_action(observation_tensor)
+			episode_recording.append([action])
 			observation, reward, terminated, truncated, _ = self.env.step(action)
 			episode_reward += reward
-			reward = torch.tensor([reward], device=self.device)
+			reward_tensor = self.actor.to_tensor_reward(reward)
 			done = terminated or truncated
 
 			if terminated:
-				next_state = None
+				next_observation_tensor = None
 			else:
-				next_state = torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
+				next_observation_tensor = self.actor.to_tensor_observation(observation)
 
 			# Store the transition in memory
-			action_tensor = torch.tensor([[action]], device=self.device, dtype=torch.long)
-			self.memory.push(state, action_tensor, next_state, reward)
+			action_tensor = self.actor.to_tensor_action(action)
+			self.memory.push(observation_tensor, action_tensor, next_observation_tensor, reward_tensor)
 
-			# Move to the next state
-			state = next_state
+			# Move to the next observation
+			observation_tensor = next_observation_tensor
 
 			# Perform one step of the optimization (on the policy network)
 			self.optimize_model()
@@ -143,31 +143,13 @@ class Algo(core.AlgoBase):
 				self.episode_ended(steps, episode_reward)
 				
 				#if episode_reward > 10000: # visualize very high scoring episodes to help understand what's happening during training
-				#	self.visualize_model_from_recording(recording)
+				#	self.visualize_model_from_recording(episode_recording)
 				break
-		return steps
-
-	def loop_episodes(self,num_episodes, visualize_every=0):
-		i_episode = self.logger.get_latest_value("episodes")
-		while i_episode < num_episodes :
-			i_episode += 1
-			#if self.average_duration > 450:	# early out of episodes because its already good enough
-			#	break
-			
-			steps = self.do_episode()
-			
-			# #extra training between episodes
-			# print(f"Extra training {steps*5} times")
-			# for i in range(steps*5):
-				# self.optimize_model()
-				# self.update_target_actor_from_policy_net()
-								
-			if visualize_every != 0:
-				if i_episode % visualize_every == 0:
-					self.visualize(num_episodes = 1)
+		return steps, episode_reward, episode_recording
 
 	def episode_ended(self, steps, episode_reward):
-		self.logger.set_frame_value("episodes",				self.logger.get_latest_value("episodes") + 1)
+		this_episode = self.logger.get_latest_value("episodes") + 1
+		self.logger.set_frame_value("episodes",				this_episode)
 		self.logger.set_frame_value("steps_done",			self.steps_done)
 		self.logger.set_frame_value("epsilon",				self.get_epsilon())
 		self.logger.set_frame_value("memory_size",			len(self.memory))
@@ -182,11 +164,20 @@ class Algo(core.AlgoBase):
 		# self.logger.set_frame_value("best_reward",best_reward)
 		
 		self.logger.next_frame()
-		print(f"episode_ended: steps = {steps+1}, episode_reward = {episode_reward:0.1f}") 
+		print(f"episode_ended {this_episode}: steps = {steps+1}, episode_reward = {episode_reward:0.1f}") 
 
 		if self.logger.get_latest_value("episodes")%5 == 0:	# save every 5 episodes to avoid slowing things down too much
 			self.save()
 		self.logger.plot(data_to_plot=["episode_reward","episode_durations","episodes","memory_size","epsilon","steps_done"])
+
+	def loop_episodes(self,num_episodes, visualize_every=0):
+		i_episode = self.logger.get_latest_value("episodes")
+		while i_episode < num_episodes :
+			i_episode += 1
+			self.do_episode()
+			if visualize_every != 0:
+				if i_episode % visualize_every == 0:
+					self.visualize(num_episodes = 1)
 
 #####################################################################################
 # for testing

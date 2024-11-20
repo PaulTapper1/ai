@@ -73,14 +73,14 @@ class ActorCore:
 		# implement me
 		return []
 	
-	def prep_observation(self, observation):
+	def to_tensor_observation(self, observation):
 		return observation
 	
 	def visualize(self,create_env_fn,num_episodes = 5):
 		env_visualize = create_env_fn(render_mode="human")  # Use "human" for visualization
 		for i_episode in range(num_episodes):
 			observation, info = env_visualize.reset()
-			observation = self.prep_observation(observation)
+			observation = self.to_tensor_observation(observation)
 			reward_total = 0
 
 			for steps in count():
@@ -89,7 +89,7 @@ class ActorCore:
 				observation, reward, terminated, truncated, _ = env_visualize.step(action)
 				reward_total += reward
 
-				observation = self.prep_observation(observation)
+				observation = self.to_tensor_observation(observation)
 				if terminated or truncated:
 					print(f"visualize_model: episode {i_episode + 1} ended: steps = {steps+1}, reward_total = {reward_total:0.1f}")
 					break
@@ -104,13 +104,20 @@ class MLPActor(ActorCore):
 		super().__init__()
 		self.mlp = MLP(observation_dim=observation_dim, action_dim=action_dim, 
 						 hidden_layer_sizes=hidden_layer_sizes, activation=activation)
+		self.device = get_device()
 	
 	def select_action(self,observation):
 		with torch.no_grad():
 			return self.mlp.forward(observation)
 
-	def prep_observation(self, observation):
-		return torch.tensor(observation, dtype=torch.float32, device=get_device()).unsqueeze(0)
+	def to_tensor_observation(self, observation):
+		return torch.tensor(observation, device=self.device, dtype=torch.float32).unsqueeze(0)
+		
+	def to_tensor_action(self, action):
+		return torch.tensor([[action]], device=self.device, dtype=torch.long)
+		
+	def to_tensor_reward(self, reward):
+		return torch.tensor([reward], device=self.device)
 		
 	def create_copy(self):
 		copied_object = super().create_copy()
@@ -284,7 +291,10 @@ class Logger():
 
 		for subplot, data_name in enumerate(data_to_plot):
 			ax = fig.add_subplot(gs[subplot])
-			ax.set_xticks([])
+			if subplot == len(data_to_plot)-1:
+				ax.set_xlabel('Episode', fontsize=fontsize)
+			else:
+				ax.set_xticks([])
 			ax.set_title(data_name, fontsize=fontsize, loc="left")
 			ax.plot(self.data[data_name], linewidth=linewidth)
 
