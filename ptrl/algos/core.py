@@ -76,24 +76,31 @@ class ActorCore:
 	def to_tensor_observation(self, observation):
 		return observation
 	
-	def visualize(self,create_env_fn,num_episodes = 5):
+	def visualize(self, create_env_fn, num_episodes = 5, select_action_fn=None):
 		env_visualize = create_env_fn(render_mode="human")  # Use "human" for visualization
 		for i_episode in range(num_episodes):
 			observation, info = env_visualize.reset()
 			observation = self.to_tensor_observation(observation)
-			reward_total = 0
+			episode_reward = 0
 
 			for steps in count():
 				env_visualize.render()  # Render the environment
-				action = self.select_action(observation)
+				if select_action_fn == None:
+					action = self.select_action(observation)
+				else:
+					action = select_action_fn(steps, observation)
 				observation, reward, terminated, truncated, _ = env_visualize.step(action)
-				reward_total += reward
+				episode_reward += reward
 
 				observation = self.to_tensor_observation(observation)
 				if terminated or truncated:
-					print(f"visualize_model: episode {i_episode + 1} ended: steps = {steps+1}, reward_total = {reward_total:0.1f}")
+					print(f"visualize_model: episode {i_episode + 1} ended: steps = {steps+1}, episode_reward = {episode_reward:0.1f}, last step reward = {reward:0.1f}")
 					break
 		env_visualize.close()
+		
+	def visualize_model_from_recording(self, create_env_fn, episode_recording, num_episodes = 5):
+		self.visualize(create_env_fn, num_episodes=num_episodes, 
+					   select_action_fn = ( lambda steps, observation : episode_recording[steps] ) )
 		
 	def create_copy(self):
 		return copy.deepcopy(self)
@@ -191,7 +198,6 @@ class Saver:
 			obj.load_state_dict(loaded_data)
 			obj.eval()  					# Set the net to evaluation mode
 		else:
-			loaded_data = torch.load(self.filename+"."+extension, weights_only=False)
 			obj.from_saveable( loaded_data )
 
 #####################################################################################
@@ -231,9 +237,10 @@ import matplotlib.gridspec as gridspec
 import numpy as np
 
 class Logger():
-	def __init__(self):
+	def __init__(self, name=""):
 		self.data = {}
 		self.num_frames = 0
+		self.name = name
 		
 	def set_frame_value(self, key, value):
 		if not key in self.data :
@@ -241,7 +248,7 @@ class Logger():
 				self.data[key] = []
 			else:
 				print_warning(f"Adding unrecognised key {key} at frame {self.num_frames} to Logger")
-				self.data[key] = [None]*self.num_frames
+				self.data[key] = [0]*self.num_frames
 		self.data[key].append(value)
 	
 	def get_latest_value(self, key):
@@ -282,19 +289,22 @@ class Logger():
 			
 		fig = plt.figure(num=1)
 		plt.clf()
+		fig.canvas.manager.set_window_title(self.name)
 		num_graphs = len(data_to_plot)
 		height_ratios = [1]*num_graphs
 		height_ratios[0] = 3			# make the main graph taller than the rest
-		gs = gridspec.GridSpec(num_graphs, 1, height_ratios=height_ratios, hspace=0.5)
-		fontsize = 9
+		gs = gridspec.GridSpec(num_graphs, 1, height_ratios=height_ratios, hspace=0.8)
+		fontsize = 8
 		linewidth = 1
 
 		for subplot, data_name in enumerate(data_to_plot):
 			ax = fig.add_subplot(gs[subplot])
 			if subplot == len(data_to_plot)-1:
 				ax.set_xlabel('Episode', fontsize=fontsize)
+				ax.tick_params(axis='x', which='major', labelsize=8)  
 			else:
 				ax.set_xticks([])
+			ax.tick_params(axis='y', which='major', labelsize=8)  
 			ax.set_title(data_name, fontsize=fontsize, loc="left")
 			ax.plot(self.data[data_name], linewidth=linewidth)
 
@@ -314,7 +324,7 @@ class Logger():
 import inspect
 
 class AlgoBase:
-	def __init__(self, create_env_fn, settings):
+	def __init__(self, name, create_env_fn, settings):
 		self.settings = settings	# should be a Dict
 		
 		# TODO - make these settings below part of self.settings
@@ -336,20 +346,24 @@ class AlgoBase:
 		self.LR = 1e-4
 		self.MEM_SIZE = 10000
 		
+		self.name = name
 		self.create_env_fn = create_env_fn
 		self.env = create_env_fn()
 		self.env_name = self.env.spec.name
-		self.logger = Logger()
+		save_name = self.get_save_name()
+		self.logger = Logger(save_name)
 		self.memory = AlgoMemory(self.MEM_SIZE)
-		self.saver = Saver( self.get_save_name() )
+		self.saver = Saver(save_name)
 		self.steps_done = 0
 		self.average_duration = 0
 		self.device = get_device()
 		
 	def get_save_name(self):
-		save_name = "ptrl_"+__name__+"_"+self.env_name
+		save_name = self.name+"_"+self.env_name
 		for hidden_layer_size in self.settings["hidden_layer_sizes"]:
 			save_name += "_"+str(hidden_layer_size)
+		if "experiment" in self.settings :
+			save_name += "_ex"+str(self.settings["experiment"])
 		return save_name
 
 	def save(self):
@@ -365,15 +379,96 @@ class AlgoBase:
 		if self.saver.save_exists():
 			self.load()
 		
+	def visualize(self, num_episodes = 5):
+		self.actor.visualize(self.create_env_fn, num_episodes)
+		
 
 #####################################################################################
-# Settings
-class Settings(dict):
+# Saveable
+class Saveable(dict):
 	def to_saveable(self):
 		return self
 		
 	def from_saveable(self, saveable):
 		self = saveable
+
+#####################################################################################
+# Experiment
+plot_figure_num = 2
+
+class Experiment(Saveable):
+	def __init__(self, name, experiment_options):
+		self.experiment_options = experiment_options
+		self.iterator_cursor = [0]*len(self.experiment_options)
+		self.experiment = self._get_experiment_from_cursor()
+		self.saver = Saver(name)
+		self.completed_experiments = {}
+		if self.saver.save_exists():
+			self.saver.load_data_into("experiment", self)
+		global plot_figure_num
+		self.plot_figure_num = plot_figure_num
+		plot_figure_num += 1
+
+	def to_saveable(self):
+		return self.completed_experiments
+
+	def from_saveable(self, saveable):
+		self.completed_experiments = saveable
+
+	def _get_experiment_from_cursor(self):
+		ret = []
+		for layer in range(len(self.experiment_options)):
+			ret.append( self.experiment_options[layer][self.iterator_cursor[layer]] )
+		return ret
+
+	def iterate_inner(self):	# returns True if it is still iterating, and False when its finished
+		if self.iterator_cursor[0] == -1:	# returned last iteration previous time this was called, so now time to terminate loop
+			return False
+		cursor_layer = 0
+		while True:
+			if cursor_layer == len(self.experiment_options):
+				self.iterator_cursor[0] = -1	# will cause a loop termination next time
+				break
+			self.iterator_cursor[cursor_layer] += 1
+			if self.iterator_cursor[cursor_layer] < len(self.experiment_options[cursor_layer]):
+				break
+			self.iterator_cursor[cursor_layer] = 0
+			cursor_layer += 1
+		return True
+
+	def iterate(self):	# returns True if it is still iterating, and False when its finished
+		self.experiment = self._get_experiment_from_cursor()
+		while True:
+			ret = self.iterate_inner()
+			if not self.get_experiment_str() in self.completed_experiments:
+				break
+			if ret == False:
+				break
+			self.experiment = self._get_experiment_from_cursor()
+		return ret
+	
+	def get_experiment_str(self):
+		return str(self.experiment)
+
+	def experiment_completed(self, results):
+		self.completed_experiments [self.get_experiment_str()] = results
+		self.saver.add_data_to_save("experiment", self)
+		self.saver.save()
+		
+	def plot(self, block=False):
+		plt.figure(num=self.plot_figure_num)
+		plt.clf()
+		plt.title("Experiment: "+self.saver.filename)
+		plt.grid(axis='x')  # Add vertical grid lines
+		plt.xticks(np.arange(len(self.completed_experiments.items())))
+		for num, (key, data) in enumerate(self.completed_experiments.items()):
+			data.sort()
+			x_coords = np.arange(len(data))*(0.5/len(data)) + float(num)
+			plt.plot( x_coords, data, "ro")
+	
+		plt.pause(0.01)  # pause a bit so that plots are updated
+		plt.show(block=block)
+		
 
 #####################################################################################
 # for testing

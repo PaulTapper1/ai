@@ -1,4 +1,4 @@
-import core
+import algos.core as core
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -7,9 +7,9 @@ import random
 from itertools import count
 
 class Algo(core.AlgoBase):
-	def __init__(self, create_env_fn, settings):
-		super().__init__(create_env_fn=create_env_fn, settings=settings)
-		self.settings = core.Settings(settings)	# should be a Dict
+	def __init__(self, create_env_fn, settings=[]):
+		super().__init__(name="dqn", create_env_fn=create_env_fn, settings=settings)
+		self.settings = core.Saveable(settings)
 		self.actor = core.MLPActorDiscreteActions(self.create_env_fn, hidden_layer_sizes=self.settings["hidden_layer_sizes"])
 		self.optimizer = optim.AdamW(self.actor.mlp.parameters(), lr=self.LR, amsgrad=True)
 		self.target_actor = self.actor.create_copy()
@@ -41,16 +41,11 @@ class Algo(core.AlgoBase):
 		self.steps_done += 1
 		if random.random() > eps_threshold:
 			action = self.actor.select_action(observation)
-			#print(f"select_action: policy_action = {action}")
 			return action
 		else:
 			random_action = self.env.action_space.sample()
-			#print(f"select_action: random action = {random_action}")
 			return random_action
 
-	def visualize(self, num_episodes = 5):
-		self.actor.visualize(self.create_env_fn, num_episodes)
-		
 	def optimize_model(self):
 		if len(self.memory) < self.BATCH_SIZE:
 				return
@@ -115,7 +110,8 @@ class Algo(core.AlgoBase):
 		
 		for steps in count():
 			action = self.select_action(observation_tensor)
-			episode_recording.append([action])
+			
+			episode_recording.append(action)
 			observation, reward, terminated, truncated, _ = self.env.step(action)
 			episode_reward += reward
 			reward_tensor = self.actor.to_tensor_reward(reward)
@@ -140,14 +136,11 @@ class Algo(core.AlgoBase):
 			self.update_target_actor_from_policy_net()
 
 			if done:
-				self.episode_ended(steps, episode_reward)
-				
-				#if episode_reward > 10000: # visualize very high scoring episodes to help understand what's happening during training
-				#	self.visualize_model_from_recording(episode_recording)
+				self.episode_ended(last_step_reward=reward, steps=steps, episode_reward=episode_reward)
 				break
-		return steps, episode_reward, episode_recording
+		return reward, steps, episode_reward, episode_recording
 
-	def episode_ended(self, steps, episode_reward):
+	def episode_ended(self, last_step_reward, steps, episode_reward):
 		this_episode = self.logger.get_latest_value("episodes") + 1
 		self.logger.set_frame_value("episodes",				this_episode)
 		self.logger.set_frame_value("steps_done",			self.steps_done)
@@ -155,26 +148,48 @@ class Algo(core.AlgoBase):
 		self.logger.set_frame_value("memory_size",			len(self.memory))
 		self.logger.set_frame_value("episode_durations",	steps + 1)
 		self.logger.set_frame_value("episode_reward",		episode_reward)
-		
-		# best_reward = self.logger.get_latest_value("best_reward")
-		# if episode_reward >= best_reward or self.logger.get_latest_value("episodes") == 1:
-			# best_reward = episode_reward
-			# self.best_net = self.policy_net
-			# print(f"Updated best net to have reward {best_reward}")
-		# self.logger.set_frame_value("best_reward",best_reward)
-		
+		self.logger.set_frame_value("last_step_reward",		last_step_reward)
 		self.logger.next_frame()
-		print(f"episode_ended {this_episode}: steps = {steps+1}, episode_reward = {episode_reward:0.1f}") 
+		print(f"episode_ended {this_episode}: steps = {steps+1}, episode_reward = {episode_reward:0.1f}, last step reward = {last_step_reward:0.1f}") 
 
 		if self.logger.get_latest_value("episodes")%5 == 0:	# save every 5 episodes to avoid slowing things down too much
 			self.save()
-		self.logger.plot(data_to_plot=["episode_reward","episode_durations","episodes","memory_size","epsilon","steps_done"])
+			
+	def do_episode_test(self, seed=None):
+		# Initialize the environment and get its observation
+		observation, info = self.env.reset(seed=seed)
+		observation_tensor = self.actor.to_tensor_observation(observation)
+		episode_reward = 0
+		
+		for steps in count():
+			action = self.actor.select_action(observation_tensor)	# always use the on policy action when testing
+			observation, reward, terminated, truncated, _ = self.env.step(action)
+			episode_reward += reward
+			reward_tensor = self.actor.to_tensor_reward(reward)
+			done = terminated or truncated
+			if terminated:
+				next_observation_tensor = None
+			else:
+				next_observation_tensor = self.actor.to_tensor_observation(observation)
+			observation_tensor = next_observation_tensor
+			if done:
+				print(f"test episode ended: steps = {steps+1}, episode_reward = {episode_reward:0.1f}, last step reward = {reward:0.1f}")
+				break
+		return reward, steps, episode_reward
 
-	def loop_episodes(self,num_episodes, visualize_every=0):
+	def show_graph(self):
+		self.logger.plot(data_to_plot=["episode_reward","last_step_reward","episode_durations","episodes","memory_size","epsilon","steps_done"])
+
+	def loop_episodes(self,num_episodes, visualize_every=0, show_graph=True):
 		i_episode = self.logger.get_latest_value("episodes")
 		while i_episode < num_episodes :
 			i_episode += 1
-			self.do_episode()
+			last_step_reward, steps, episode_reward, episode_recording = self.do_episode()
+			if show_graph:
+				self.show_graph()
+			# if last_step_reward >= 100:	# TODO: for this to work, we'll need the environment to be deterministic, so will need to record the random seed
+				# print(f"As last_step_reward = {last_step_reward}, visualize episode replay")
+				# self.actor.visualize_model_from_recording(self.create_env_fn, episode_recording)
 			if visualize_every != 0:
 				if i_episode % visualize_every == 0:
 					self.visualize(num_episodes = 1)
@@ -192,4 +207,6 @@ if __name__ == '__main__':
 		return gym.make("LunarLander-v3",render_mode=render_mode)		# https://gymnasium.farama.org/environments/box2d/lunar_lander/
 	algo = Algo( create_env_fn_LunarLander, settings=settings )	
 	#algo.visualize()	# test visualization of actor in environment
-	algo.loop_episodes(1000,10)
+	#algo.loop_episodes(1000, visualize_every=10, show_graph=True)
+	algo.loop_episodes(1000, visualize_every=0, show_graph=True)
+	
