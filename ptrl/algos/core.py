@@ -24,6 +24,7 @@ def print_error(message):
 # Torch interface classes
 import torch
 import torch.nn as nn
+import torch.optim as optim
 
 device = False
 
@@ -107,11 +108,13 @@ class ActorCore:
 
 class MLPActor(ActorCore):
 	def __init__(self, observation_dim, action_dim, hidden_layer_sizes=[256,256],
-				 activation=nn.ReLU, output_activation=nn.Identity):
+				 activation=nn.ReLU, output_activation=nn.Identity, learning_rate=1e-4, **kwargs):
 		super().__init__()
 		self.mlp = MLP(observation_dim=observation_dim, action_dim=action_dim, 
 						 hidden_layer_sizes=hidden_layer_sizes, activation=activation)
 		self.device = get_device()
+		self.learning_rate = learning_rate
+		self.optimizer = optim.AdamW(self.mlp.parameters(), lr=self.learning_rate, amsgrad=True)
 	
 	def select_action(self,observation):
 		with torch.no_grad():
@@ -131,9 +134,18 @@ class MLPActor(ActorCore):
 		copied_object.mlp.load_state_dict(self.mlp.state_dict())
 		return copied_object
 		
+	def optimize(self, loss, clip_grad_value=None):
+		self.optimizer.zero_grad()
+		loss.backward()
+		# In-place gradient clipping
+		if clip_grad_value is not None:
+			torch.nn.utils.clip_grad_value_(self.mlp.parameters(), clip_grad_value)
+		self.optimizer.step()
+		
+		
 class MLPActorDiscreteActions(MLPActor):
 	def __init__(self, create_env_fn, hidden_layer_sizes=[256,256],
-				 activation=nn.ReLU, output_activation=nn.Identity):
+				 activation=nn.ReLU, output_activation=nn.Identity, **kwargs):
 		temp_env = create_env_fn()
 		if not f"{temp_env.action_space}".startswith("Discrete"):
 			print_error("Cannot create an MLPActorDiscreteActions using a continuous action space")
@@ -143,7 +155,7 @@ class MLPActorDiscreteActions(MLPActor):
 		#print(f"MLPActorDiscreteActions: environment {temp_env.spec.id} observation_dim = {observation_dim}, action_dim = {action_dim}")
 		temp_env.close()
 		super().__init__(observation_dim=observation_dim, action_dim=action_dim,
-						 hidden_layer_sizes=hidden_layer_sizes, activation=activation)
+						 hidden_layer_sizes=hidden_layer_sizes, activation=activation, **kwargs)
 
 	def select_action(self,observation):
 		raw_action = super().select_action(observation)
@@ -325,7 +337,7 @@ import inspect
 
 class AlgoBase:
 	def __init__(self, name, create_env_fn, settings):
-		self.settings = settings	# should be a Dict
+		self.settings = Saveable(settings)
 		
 		# TODO - make these settings below part of self.settings
 		
@@ -367,20 +379,75 @@ class AlgoBase:
 		return save_name
 
 	def save(self):
-		print(f"{inspect.currentframe().f_code.co_name} overload in child classes")
+		self.add_data_to_save()
+		self.saver.save()		
+
+	def add_data_to_save(self):
+		self.saver.add_data_to_save( "memory",			self.memory )
+		self.saver.add_data_to_save( "settings", 		self.settings )
+		self.saver.add_data_to_save( "logger",			self.logger )
 
 	def load(self):
-		print(f"{inspect.currentframe().f_code.co_name} overload in child classes")
-		
-	def post_load_fixup(self):
+		self.saver.load_data_into( "memory",			self.memory )
+		self.saver.load_data_into( "settings", 			self.settings )
+		self.saver.load_data_into( "logger", 			self.logger )
 		self.steps_done = self.logger.get_latest_value("steps_done")
-		
+				
 	def load_if_save_exists(self):
 		if self.saver.save_exists():
 			self.load()
 		
-	def visualize(self, num_episodes = 5):
+	def visualize(self, num_episodes=5):
 		self.actor.visualize(self.create_env_fn, num_episodes)
+
+	def loop_episodes(self, num_episodes, visualize_every=0, show_graph=True):
+		i_episode = self.logger.get_latest_value("episodes")
+		while i_episode < num_episodes :
+			i_episode += 1
+			last_step_reward, steps, episode_reward, episode_recording = self.do_episode()
+			if show_graph:
+				self.show_graph()
+			# if last_step_reward >= 100:	# TODO: for this to work, we'll need the environment to be deterministic, so will need to record the random seed
+				# print(f"As last_step_reward = {last_step_reward}, visualize episode replay")
+				# self.actor.visualize_model_from_recording(self.create_env_fn, episode_recording)
+			if visualize_every != 0:
+				if i_episode % visualize_every == 0:
+					self.visualize(num_episodes = 1)
+
+	def episode_ended(self, last_step_reward, steps, episode_reward):
+		this_episode = self.logger.get_latest_value("episodes") + 1
+		self.logger.set_frame_value("episodes",				this_episode)
+		self.logger.set_frame_value("steps_done",			self.steps_done)
+		self.logger.set_frame_value("memory_size",			len(self.memory))
+		self.logger.set_frame_value("episode_durations",	steps + 1)
+		self.logger.set_frame_value("episode_reward",		episode_reward)
+		self.logger.set_frame_value("last_step_reward",		last_step_reward)
+		self.logger.next_frame()
+		print(f"episode_ended {this_episode}: steps = {steps+1}, episode_reward = {episode_reward:0.1f}, last step reward = {last_step_reward:0.1f}") 
+		if self.logger.get_latest_value("episodes")%5 == 0:	# save every 5 episodes to avoid slowing things down too much
+			self.save()
+			
+	def do_episode_test(self, seed=None):
+		# Initialize the environment and get its observation
+		observation, info = self.env.reset(seed=seed)
+		observation_tensor = self.actor.to_tensor_observation(observation)
+		episode_reward = 0
+		
+		for steps in count():
+			action = self.actor.select_action(observation_tensor)	# always use the on policy action when testing
+			observation, reward, terminated, truncated, _ = self.env.step(action)
+			episode_reward += reward
+			reward_tensor = self.actor.to_tensor_reward(reward)
+			done = terminated or truncated
+			if terminated:
+				next_observation_tensor = None
+			else:
+				next_observation_tensor = self.actor.to_tensor_observation(observation)
+			observation_tensor = next_observation_tensor
+			if done:
+				print(f"test episode ended: steps = {steps+1}, episode_reward = {episode_reward:0.1f}, last step reward = {reward:0.1f}")
+				break
+		return reward, steps, episode_reward
 		
 
 #####################################################################################

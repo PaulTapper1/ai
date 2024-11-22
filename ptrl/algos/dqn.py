@@ -1,35 +1,28 @@
 import algos.core as core
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import math
 import random
 from itertools import count
 
+name = "dqn"
+
 class Algo(core.AlgoBase):
 	def __init__(self, create_env_fn, settings=[]):
-		super().__init__(name="dqn", create_env_fn=create_env_fn, settings=settings)
-		self.settings = core.Saveable(settings)
-		self.actor = core.MLPActorDiscreteActions(self.create_env_fn, hidden_layer_sizes=self.settings["hidden_layer_sizes"])
-		self.optimizer = optim.AdamW(self.actor.mlp.parameters(), lr=self.LR, amsgrad=True)
+		super().__init__(name=name, create_env_fn=create_env_fn, settings=settings)
+		self.actor = core.MLPActorDiscreteActions(self.create_env_fn, hidden_layer_sizes=self.settings["hidden_layer_sizes"], learning_rate=self.LR)
 		self.target_actor = self.actor.create_copy()
 		self.load_if_save_exists()
 
-	def save(self):
+	def add_data_to_save(self):
+		super().add_data_to_save()
 		self.saver.add_data_to_save( "actor",			self.actor.mlp, 		is_net=True )
 		self.saver.add_data_to_save( "target_actor",	self.target_actor.mlp, 	is_net=True )
-		self.saver.add_data_to_save( "memory",			self.memory )
-		self.saver.add_data_to_save( "settings", 		self.settings )
-		self.saver.add_data_to_save( "logger",			self.logger )
-		self.saver.save()
 	
 	def load(self):
+		super().load()
 		self.saver.load_data_into( "actor",				self.actor.mlp, 		is_net=True )
 		self.saver.load_data_into( "target_actor",		self.target_actor.mlp, 	is_net=True )
-		self.saver.load_data_into( "memory",			self.memory )
-		self.saver.load_data_into( "settings", 			self.settings )
-		self.saver.load_data_into( "logger", 			self.logger )
-		self.post_load_fixup();
 	
 	def get_epsilon(self):
 		decay = self.logger.get_latest_value("episodes")		 # epsilon based on episodes
@@ -86,11 +79,12 @@ class Algo(core.AlgoBase):
 		loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
 			
 		# Optimize the model
-		self.optimizer.zero_grad()
-		loss.backward()
-		# In-place gradient clipping
-		torch.nn.utils.clip_grad_value_(self.actor.mlp.parameters(), 100)
-		self.optimizer.step()
+		self.actor.optimize(loss=loss, clip_grad_value=100)
+		# self.optimizer.zero_grad()
+		# loss.backward()
+		# # In-place gradient clipping
+		# torch.nn.utils.clip_grad_value_(self.actor.mlp.parameters(), 100)
+		# self.optimizer.step()
 
 	def update_target_actor_from_policy_net(self):
 		# Soft update of the target network's weights
@@ -141,58 +135,12 @@ class Algo(core.AlgoBase):
 		return reward, steps, episode_reward, episode_recording
 
 	def episode_ended(self, last_step_reward, steps, episode_reward):
-		this_episode = self.logger.get_latest_value("episodes") + 1
-		self.logger.set_frame_value("episodes",				this_episode)
-		self.logger.set_frame_value("steps_done",			self.steps_done)
+		# log out any algorithm specific data you want to track
 		self.logger.set_frame_value("epsilon",				self.get_epsilon())
-		self.logger.set_frame_value("memory_size",			len(self.memory))
-		self.logger.set_frame_value("episode_durations",	steps + 1)
-		self.logger.set_frame_value("episode_reward",		episode_reward)
-		self.logger.set_frame_value("last_step_reward",		last_step_reward)
-		self.logger.next_frame()
-		print(f"episode_ended {this_episode}: steps = {steps+1}, episode_reward = {episode_reward:0.1f}, last step reward = {last_step_reward:0.1f}") 
-
-		if self.logger.get_latest_value("episodes")%5 == 0:	# save every 5 episodes to avoid slowing things down too much
-			self.save()
-			
-	def do_episode_test(self, seed=None):
-		# Initialize the environment and get its observation
-		observation, info = self.env.reset(seed=seed)
-		observation_tensor = self.actor.to_tensor_observation(observation)
-		episode_reward = 0
-		
-		for steps in count():
-			action = self.actor.select_action(observation_tensor)	# always use the on policy action when testing
-			observation, reward, terminated, truncated, _ = self.env.step(action)
-			episode_reward += reward
-			reward_tensor = self.actor.to_tensor_reward(reward)
-			done = terminated or truncated
-			if terminated:
-				next_observation_tensor = None
-			else:
-				next_observation_tensor = self.actor.to_tensor_observation(observation)
-			observation_tensor = next_observation_tensor
-			if done:
-				print(f"test episode ended: steps = {steps+1}, episode_reward = {episode_reward:0.1f}, last step reward = {reward:0.1f}")
-				break
-		return reward, steps, episode_reward
+		super().episode_ended(last_step_reward, steps, episode_reward)		# do all the standard stuff at the end of an episode
 
 	def show_graph(self):
 		self.logger.plot(data_to_plot=["episode_reward","last_step_reward","episode_durations","episodes","memory_size","epsilon","steps_done"])
-
-	def loop_episodes(self,num_episodes, visualize_every=0, show_graph=True):
-		i_episode = self.logger.get_latest_value("episodes")
-		while i_episode < num_episodes :
-			i_episode += 1
-			last_step_reward, steps, episode_reward, episode_recording = self.do_episode()
-			if show_graph:
-				self.show_graph()
-			# if last_step_reward >= 100:	# TODO: for this to work, we'll need the environment to be deterministic, so will need to record the random seed
-				# print(f"As last_step_reward = {last_step_reward}, visualize episode replay")
-				# self.actor.visualize_model_from_recording(self.create_env_fn, episode_recording)
-			if visualize_every != 0:
-				if i_episode % visualize_every == 0:
-					self.visualize(num_episodes = 1)
 
 #####################################################################################
 # for testing
