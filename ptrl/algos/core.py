@@ -528,15 +528,24 @@ class Experiment(Saveable):
 		self.saver.save()
 		
 	def plot(self, block=False):
+		fontsize = 8
 		plt.figure(num=self.plot_figure_num)
 		plt.clf()
-		plt.title("Experiment: "+self.saver.filename)
+		plt.title("Experiment: "+self.saver.filename, fontsize=fontsize)
 		plt.grid(axis='x')  # Add vertical grid lines
+		plt.grid(axis='y')  # Add vertical grid lines
 		plt.xticks(np.arange(len(self.completed_experiments.items())))
+		plt.yticks([-200,-100,0,100,200,300])
+		plt.tick_params(axis='x', which='major', labelsize=8)  
+		plt.tick_params(axis='y', which='major', labelsize=8)  
 		for num, (key, data) in enumerate(self.completed_experiments.items()):
 			data.sort()
 			x_coords = np.arange(len(data))*(0.5/len(data)) + float(num)
-			plt.plot( x_coords, data, "ro")
+			all_points = list(zip(x_coords,data))
+			lose_points = [p for p in all_points if p[1] < 200]
+			win_points = [p for p in all_points if p[1] >= 200]
+			plt.plot( [p[0] for p in lose_points], [p[1] for p in lose_points], "ro", markersize=5)
+			plt.plot( [p[0] for p in win_points], [p[1] for p in win_points], "go", markersize=5)
 	
 		plt.pause(0.01)  # pause a bit so that plots are updated
 		plt.show(block=block)

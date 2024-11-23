@@ -140,7 +140,7 @@ class Algo(core.AlgoBase):
 		super().episode_ended(last_step_reward, steps, episode_reward)		# do all the standard stuff at the end of an episode
 
 	def show_graph(self):
-		self.logger.plot(data_to_plot=["episode_reward","last_step_reward","episode_durations","episodes","memory_size","epsilon","steps_done"])
+		self.logger.plot(data_to_plot=["episode_reward","last_step_reward","episode_durations","memory_size","epsilon"])
 
 #####################################################################################
 # for testing
