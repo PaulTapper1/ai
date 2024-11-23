@@ -1,10 +1,10 @@
 import algos.core as core
-
-name = "handwritten"
+import pathlib
+algo_name = pathlib.Path(__file__).stem
 
 class Algo(core.AlgoBase):
 	def __init__(self, create_env_fn, settings=[]):
-		super().__init__(name=name, create_env_fn=create_env_fn, settings=settings)
+		super().__init__(name=algo_name, create_env_fn=create_env_fn, settings=settings)
 		match self.env_name:
 			case "CartPole":
 				self.actor = ActorHandwritten_CartPole()
@@ -52,7 +52,8 @@ class ActorHandwritten_LunarLander(core.ActorCore):
 		# control variables
 		boost_up = 2
 		target_width_x = 0.05
-		max_turn_angle = 0.3
+		panic_angle = 0.5
+		turn_angle = 0.3
 		landing_max_speed = 0.1
 
 		action = 0
@@ -61,14 +62,18 @@ class ActorHandwritten_LunarLander(core.ActorCore):
 			if vel_y < -landing_max_speed:
 				action = 2
 		else:
-			if pos_y + vel_y*boost_up < 0:
+			if ang + ang_vel > panic_angle:
+				action = 3
+			elif ang + ang_vel < -panic_angle:
+				action = 1
+			elif pos_y + vel_y*boost_up < 0:
 				action = 2
 			else:
 				target_ang = 0
 				if pos_x + vel_x < -target_width_x:
-					target_ang = -max_turn_angle
+					target_ang = -turn_angle
 				elif pos_x + vel_x > target_width_x:
-					target_ang = max_turn_angle
+					target_ang = turn_angle
 				if ang + ang_vel > target_ang:
 					action = 3
 				else:

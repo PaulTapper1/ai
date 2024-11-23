@@ -70,6 +70,9 @@ from itertools import count
 import copy
 
 class ActorCore:
+	def reset(self):
+		pass	# empty function - but can be overloaded in child classes
+		
 	def select_action(self,observation):
 		# implement me
 		return []
@@ -81,6 +84,7 @@ class ActorCore:
 		env_visualize = create_env_fn(render_mode="human")  # Use "human" for visualization
 		for i_episode in range(num_episodes):
 			observation, info = env_visualize.reset()
+			self.reset()
 			observation = self.to_tensor_observation(observation)
 			episode_reward = 0
 
@@ -430,6 +434,7 @@ class AlgoBase:
 	def do_episode_test(self, seed=None):
 		# Initialize the environment and get its observation
 		observation, info = self.env.reset(seed=seed)
+		self.actor.reset()
 		observation_tensor = self.actor.to_tensor_observation(observation)
 		episode_reward = 0
 		

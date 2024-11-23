@@ -4,12 +4,12 @@ import torch.nn as nn
 import math
 import random
 from itertools import count
-
-name = "dqn"
+import pathlib
+algo_name = pathlib.Path(__file__).stem
 
 class Algo(core.AlgoBase):
 	def __init__(self, create_env_fn, settings=[]):
-		super().__init__(name=name, create_env_fn=create_env_fn, settings=settings)
+		super().__init__(name=algo_name, create_env_fn=create_env_fn, settings=settings)
 		self.actor = core.MLPActorDiscreteActions(self.create_env_fn, hidden_layer_sizes=self.settings["hidden_layer_sizes"], learning_rate=self.LR)
 		self.target_actor = self.actor.create_copy()
 		self.load_if_save_exists()
