@@ -12,6 +12,7 @@ class Algo(core.AlgoBase):
 		super().__init__(name=algo_name, create_env_fn=create_env_fn, settings=settings)
 		self.actor = core.MLPActorDiscreteActions(self.create_env_fn, hidden_layer_sizes=self.settings["hidden_layer_sizes"], learning_rate=self.LR)
 		self.target_actor = self.actor.create_copy()
+		self.data_to_plot = ["episode_reward","last_step_reward","episode_durations","memory_size","epsilon"]
 		self.load_if_save_exists()
 
 	def add_data_to_save(self):
@@ -98,6 +99,7 @@ class Algo(core.AlgoBase):
 	def do_episode(self):
 		# Initialize the environment and get its observation
 		observation, info = self.env.reset()
+		self.actor.reset()
 		observation_tensor = self.actor.to_tensor_observation(observation)
 		episode_reward = 0
 		episode_recording = []
@@ -130,7 +132,7 @@ class Algo(core.AlgoBase):
 			self.update_target_actor_from_policy_net()
 
 			if done:
-				self.episode_ended(last_step_reward=reward, steps=steps, episode_reward=episode_reward)
+				self.episode_ended_outer(last_step_reward=reward, steps=steps, episode_reward=episode_reward)
 				break
 		return reward, steps, episode_reward, episode_recording
 
@@ -138,9 +140,6 @@ class Algo(core.AlgoBase):
 		# log out any algorithm specific data you want to track
 		self.logger.set_frame_value("epsilon",				self.get_epsilon())
 		super().episode_ended(last_step_reward, steps, episode_reward)		# do all the standard stuff at the end of an episode
-
-	def show_graph(self):
-		self.logger.plot(data_to_plot=["episode_reward","last_step_reward","episode_durations","memory_size","epsilon"])
 
 #####################################################################################
 # for testing

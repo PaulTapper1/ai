@@ -10,8 +10,18 @@
 # actor = core.MLPActorDiscreteActions(create_env_fn, hidden_layer_sizes=settings["hidden_layer_sizes"])
 # saver = core.Saver("LunarLander_no_wind_128_64_32")
 # saver.load_data_into("actor", actor.mlp, is_net=True)
-# actor.visualize(create_env_fn, num_episodes = 5)
+# actor.visualize(create_env_fn=create_env_fn, num_episodes = 5)
 
 
-import pathlib
-print("Current script name = "+pathlib.Path(__file__).stem)
+#import pathlib
+#print("Current script name = "+pathlib.Path(__file__).stem)
+
+
+
+import gymnasium as gym
+import algos.core as core
+import algos.environments as env
+import algos.handwritten as algo_type
+create_env_fn = env.create_env_fn_LunarLanderModWithWind
+algo = algo_type.Algo( create_env_fn )
+algo.visualize(num_episodes=10)

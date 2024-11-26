@@ -2,19 +2,28 @@ import gymnasium as gym
 import algos.core as core
 import algos.environments as env
 
+############################################
 # select the learning algorithm to use
 import algos.dqn as algo_type
 #import algos.dqn_frame_mem as algo_type
 #import algos.handwritten as algo_type
 
-create_env_fn = env.create_env_fn_LunarLanderWithWind
+############################################
+# select any meta algorithm
+import algos.meta_keep_best as meta_algo_type
+
+############################################
+# select environment to train and test on
+#create_env_fn = env.create_env_fn_LunarLanderWithWind
+create_env_fn = env.create_env_fn_LunarLanderModWithWind
 
 env_name = env.get_env_name_from_create_fn(create_env_fn)
-num_episodes = 1000
-num_test_runs_per_experiment = 20
+num_episodes = 2000
+num_test_episodes_per_experiment = 20
 
 def run_experiment(settings):
-	experiment = core.Experiment( "benchmark_"+algo_type.algo_name+"_"+env_name+str(num_episodes),
+	experiment_savename = "experiment_"+core.generic_get_save_name(meta_algo_type.meta_algo_name+"_"+algo_type.algo_name, env_name, settings)+"_ep"+str(num_episodes)
+	experiment = core.Experiment( experiment_savename,
 		[
 			[0,1,2,3,4,5,6,7,8,9]
 		] )
@@ -25,32 +34,38 @@ def run_experiment(settings):
 		settings["experiment"] = this_experiment[0]
 		print(f"Experiment {settings['experiment']}")
 		algo = algo_type.Algo( create_env_fn, settings=settings)
+		meta_algo = meta_algo_type.MetaAlgo( create_env_fn, settings=settings, algo=algo)
 
 		# if algo.steps_done == 0:
 			# print("preloading with succesful actor from LunarLander no wind")
 			# temp_saver = core.Saver("LunarLander_no_wind_128_64_32")
 			# temp_saver.load_data_into("actor", algo.actor.mlp, is_net=True)
 		
-		#algo.visualize(num_episodes=5)
-		algo.loop_episodes(num_episodes, visualize_every=0, show_graph=True)
+		#algo.visualize(num_episodes=10)
+		#if meta_algo.algo.steps_done > 0:
+		#	meta_algo.visualize(num_episodes=10)
 		
-		print(f"Running {num_test_runs_per_experiment} test episodes for benchmarking")
-		results = []
-		for test in range(num_test_runs_per_experiment):
-			last_step_reward, steps, episode_reward = algo.do_episode_test(seed=test)
-			results.append(episode_reward)
-		
+		meta_algo.loop_episodes(num_episodes=num_episodes, visualize_every=0, show_graph=True)
+
+		results = meta_algo.test_actor(num_test_episodes=num_test_episodes_per_experiment, seed_offset=1000)		
 		print(f"Episode rewards = {results}")
 		experiment.experiment_completed(results)
 		experiment.plot()
-	#experiment.plot(block=True)
+	print(f"{experiment_savename} finished")
+	experiment.plot(block=True, save_image=True)
+
+def visualizer_actor_from_run(savename):
+	actor = core.MLPActorDiscreteActions(create_env_fn, hidden_layer_sizes=[256,128,64,32])
+	saver = core.Saver(savename)
+	saver.load_data_into("actor", actor.mlp, True)
+	actor.test(create_env_fn=create_env_fn, num_test_episodes=5, visualize=True) #, seed_offset=1000)
+
 
 # run_experiment( { "hidden_layer_sizes" : [64,32,16] } )
 # run_experiment( { "hidden_layer_sizes" : [32,16,8] } )
 # run_experiment( { "hidden_layer_sizes" : [16,8,4] } )
 # run_experiment( { "hidden_layer_sizes" : [64,32] } )
 # run_experiment( { "hidden_layer_sizes" : [256,256,256] } )
-
-run_experiment( { "hidden_layer_sizes" : [256,128,64,32] } )
+#run_experiment( { "hidden_layer_sizes" : [256,128,64,32] } )
 		
-
+visualizer_actor_from_run("meta_keep_best_dqn_LunarLanderModWithWind_256_128_64_32_ex0")

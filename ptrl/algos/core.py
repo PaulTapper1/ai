@@ -80,32 +80,45 @@ class ActorCore:
 	def to_tensor_observation(self, observation):
 		return observation
 	
-	def visualize(self, create_env_fn, num_episodes = 5, select_action_fn=None):
-		env_visualize = create_env_fn(render_mode="human")  # Use "human" for visualization
+	def visualize(self, create_env_fn, num_episodes=5):
 		for i_episode in range(num_episodes):
-			observation, info = env_visualize.reset()
-			self.reset()
+			reward, steps, episode_reward = do_episode(self, create_env_fn=create_env_fn, visualize=True)
+			print(f"visualize: episode {i_episode + 1} ended: steps = {steps+1}, episode_reward = {episode_reward:0.1f}, last step reward = {reward:0.1f}")
+	
+	def test(self, create_env_fn, num_test_episodes=20, seed_offset = 0, visualize=False):
+		print(f"Running {num_test_episodes} test episodes")
+		results = []
+		for test_number in range(num_test_episodes):
+			last_step_reward, steps, episode_reward = self.do_episode(create_env_fn=create_env_fn, 
+									  seed=seed_offset,#+test_number,
+									  visualize=visualize)
+			print(f"test episode {test_number} ended: steps = {steps+1}, episode_reward = {episode_reward:0.1f}, last step reward = {last_step_reward:0.1f}")
+			results.append(episode_reward)
+		average = np.mean(np.array(results))
+		print(f"After {num_test_episodes} tests, got average epsiode score = {average:0.1f}")
+		return results, average
+
+	# run the actor on policy for one episode (optionally visualizing it) and return the results
+	def do_episode(self, create_env_fn, visualize=False, seed=None):
+		if visualize:
+			env = create_env_fn(render_mode="human")  # Use "human" for visualization
+		else:
+			env = create_env_fn()
+		observation, info = env.reset(seed=seed)
+		self.reset()
+		observation = self.to_tensor_observation(observation)
+		episode_reward = 0
+		for steps in count():
+			# if visualize:
+				# env.render()  # Render the environment
+			action = self.select_action(observation)
+			observation, reward, terminated, truncated, _ = env.step(action)
+			episode_reward += reward
 			observation = self.to_tensor_observation(observation)
-			episode_reward = 0
-
-			for steps in count():
-				env_visualize.render()  # Render the environment
-				if select_action_fn == None:
-					action = self.select_action(observation)
-				else:
-					action = select_action_fn(steps, observation)
-				observation, reward, terminated, truncated, _ = env_visualize.step(action)
-				episode_reward += reward
-
-				observation = self.to_tensor_observation(observation)
-				if terminated or truncated:
-					print(f"visualize_model: episode {i_episode + 1} ended: steps = {steps+1}, episode_reward = {episode_reward:0.1f}, last step reward = {reward:0.1f}")
-					break
-		env_visualize.close()
-		
-	def visualize_model_from_recording(self, create_env_fn, episode_recording, num_episodes = 5):
-		self.visualize(create_env_fn, num_episodes=num_episodes, 
-					   select_action_fn = ( lambda steps, observation : episode_recording[steps] ) )
+			if terminated or truncated:
+				break
+		env.close()
+		return reward, steps, episode_reward
 		
 	def create_copy(self):
 		return copy.deepcopy(self)
@@ -313,23 +326,34 @@ class Logger():
 		fontsize = 8
 		linewidth = 1
 
-		for subplot, data_name in enumerate(data_to_plot):
+		for subplot, data_names in enumerate(data_to_plot):
 			ax = fig.add_subplot(gs[subplot])
 			if subplot == len(data_to_plot)-1:
 				ax.set_xlabel('Episode', fontsize=fontsize)
 				ax.tick_params(axis='x', which='major', labelsize=8)  
 			else:
 				ax.set_xticks([])
-			ax.tick_params(axis='y', which='major', labelsize=8)  
-			ax.set_title(data_name, fontsize=fontsize, loc="left")
-			ax.plot(self.data[data_name], linewidth=linewidth)
+			ax.tick_params(axis='y', which='major', labelsize=8)
+			
+			if type(data_names) == str:
+				data_names = [data_names]
+			chart_title = ""
+			for data_name in data_names:
+				if chart_title != "":
+					chart_title += " / "
+				chart_title += data_name
+				if data_name in self.data:
+					this_data = self.data[data_name]
+					chart_title += f" ({this_data[len(this_data)-1]:0.1f})"
+					ax.plot(this_data, linewidth=linewidth)
 
-			# Draw a smoothed graph
-			if subplot == 0 and smooth > 0:
-				if len(self.data[data_name]) >= smooth:
-					window = np.ones(int(smooth))/float(smooth)
-					smoothed = np.convolve(self.data[data_name], window, 'valid')
-					ax.plot(np.arange(smooth//2, smooth//2+len(smoothed)),smoothed, linewidth=linewidth)
+					# Draw a smoothed graph
+					if subplot == 0 and smooth > 0:
+						if len(this_data) >= smooth:
+							window = np.ones(int(smooth))/float(smooth)
+							smoothed = np.convolve(this_data, window, 'valid')
+							ax.plot(np.arange(smooth//2, smooth//2+len(smoothed)),smoothed, linewidth=linewidth)
+			ax.set_title(chart_title, fontsize=fontsize, loc="left")
 		
 		plt.pause(0.01)  # pause a bit so that plots are updated
 		plt.show(block=block)
@@ -338,6 +362,13 @@ class Logger():
 #####################################################################################
 # AlgoBase
 import inspect
+
+def generic_get_save_name(algo_name, env_name, settings):
+	save_name = algo_name+"_"+env_name
+	if "hidden_layer_sizes" in settings:
+		for hidden_layer_size in settings["hidden_layer_sizes"]:
+			save_name += "_"+str(hidden_layer_size)
+	return save_name
 
 class AlgoBase:
 	def __init__(self, name, create_env_fn, settings):
@@ -370,21 +401,25 @@ class AlgoBase:
 		self.logger = Logger(save_name)
 		self.memory = AlgoMemory(self.MEM_SIZE)
 		self.saver = Saver(save_name)
+		self.save_handler = None
+		self.save_every_frames = 5
 		self.steps_done = 0
-		self.average_duration = 0
 		self.device = get_device()
+		self.data_to_plot = ["episode_reward","last_step_reward","episode_durations","memory_size"]
+		self.episode_ended_handler = None	# use to change standard behaviour (eg- for a meta-algorithm)
 		
 	def get_save_name(self):
-		save_name = self.name+"_"+self.env_name
-		for hidden_layer_size in self.settings["hidden_layer_sizes"]:
-			save_name += "_"+str(hidden_layer_size)
+		save_name = generic_get_save_name( self.name, self.env_name, self.settings )
 		if "experiment" in self.settings :
 			save_name += "_ex"+str(self.settings["experiment"])
 		return save_name
 
 	def save(self):
-		self.add_data_to_save()
-		self.saver.save()		
+		if self.save_handler is not None:
+			self.save_handler.save()
+		else:
+			self.add_data_to_save()
+			self.saver.save()		
 
 	def add_data_to_save(self):
 		self.saver.add_data_to_save( "memory",			self.memory )
@@ -402,15 +437,14 @@ class AlgoBase:
 			self.load()
 		
 	def visualize(self, num_episodes=5):
-		self.actor.visualize(self.create_env_fn, num_episodes)
+		self.actor.visualize(create_env_fn=self.create_env_fn, num_episodes=num_episodes)
 
 	def loop_episodes(self, num_episodes, visualize_every=0, show_graph=True):
 		i_episode = self.logger.get_latest_value("episodes")
 		while i_episode < num_episodes :
 			i_episode += 1
 			last_step_reward, steps, episode_reward, episode_recording = self.do_episode()
-			if show_graph:
-				self.show_graph()
+			self.show_graph()
 			# if last_step_reward >= 100:	# TODO: for this to work, we'll need the environment to be deterministic, so will need to record the random seed
 				# print(f"As last_step_reward = {last_step_reward}, visualize episode replay")
 				# self.actor.visualize_model_from_recording(self.create_env_fn, episode_recording)
@@ -418,41 +452,30 @@ class AlgoBase:
 				if i_episode % visualize_every == 0:
 					self.visualize(num_episodes = 1)
 
+	def episode_ended_outer(self, last_step_reward, steps, episode_reward):
+		if self.episode_ended_handler is not None:
+			return self.episode_ended_handler.episode_ended(last_step_reward, steps, episode_reward)
+		return self.episode_ended(last_step_reward, steps, episode_reward)
+
 	def episode_ended(self, last_step_reward, steps, episode_reward):
 		this_episode = self.logger.get_latest_value("episodes") + 1
-		self.logger.set_frame_value("episodes",				this_episode)
-		self.logger.set_frame_value("steps_done",			self.steps_done)
-		self.logger.set_frame_value("memory_size",			len(self.memory))
-		self.logger.set_frame_value("episode_durations",	steps + 1)
-		self.logger.set_frame_value("episode_reward",		episode_reward)
-		self.logger.set_frame_value("last_step_reward",		last_step_reward)
-		self.logger.next_frame()
 		print(f"episode_ended {this_episode}: steps = {steps+1}, episode_reward = {episode_reward:0.1f}, last step reward = {last_step_reward:0.1f}") 
-		if self.logger.get_latest_value("episodes")%5 == 0:	# save every 5 episodes to avoid slowing things down too much
-			self.save()
+		self.logger.set_frame_value("episodes",						this_episode)
+		self.logger.set_frame_value("steps_done",					self.steps_done)
+		self.logger.set_frame_value("memory_size",					len(self.memory))
+		self.logger.set_frame_value("episode_durations",			steps + 1)
+		self.logger.set_frame_value("episode_reward",				episode_reward)
+		self.logger.set_frame_value("last_step_reward",				last_step_reward)
+		self.logger.next_frame()
+		if self.save_every_frames > 0:
+			if self.logger.get_latest_value("episodes")%self.save_every_frames == 0:
+				self.save()
 			
-	def do_episode_test(self, seed=None):
-		# Initialize the environment and get its observation
-		observation, info = self.env.reset(seed=seed)
-		self.actor.reset()
-		observation_tensor = self.actor.to_tensor_observation(observation)
-		episode_reward = 0
-		
-		for steps in count():
-			action = self.actor.select_action(observation_tensor)	# always use the on policy action when testing
-			observation, reward, terminated, truncated, _ = self.env.step(action)
-			episode_reward += reward
-			reward_tensor = self.actor.to_tensor_reward(reward)
-			done = terminated or truncated
-			if terminated:
-				next_observation_tensor = None
-			else:
-				next_observation_tensor = self.actor.to_tensor_observation(observation)
-			observation_tensor = next_observation_tensor
-			if done:
-				print(f"test episode ended: steps = {steps+1}, episode_reward = {episode_reward:0.1f}, last step reward = {reward:0.1f}")
-				break
-		return reward, steps, episode_reward
+	def test_actor(self, **kwargs):
+		return self.actor.test(**kwargs)
+
+	def show_graph(self):
+		self.logger.plot(self.data_to_plot)
 		
 
 #####################################################################################
@@ -527,7 +550,7 @@ class Experiment(Saveable):
 		self.saver.add_data_to_save("experiment", self)
 		self.saver.save()
 		
-	def plot(self, block=False):
+	def plot(self, block=False, save_image=False):
 		fontsize = 8
 		plt.figure(num=self.plot_figure_num)
 		plt.clf()
@@ -548,6 +571,10 @@ class Experiment(Saveable):
 			plt.plot( [p[0] for p in win_points], [p[1] for p in win_points], "go", markersize=5)
 	
 		plt.pause(0.01)  # pause a bit so that plots are updated
+		if save_image:
+			image_filename = self.saver.filename+".png"
+			plt.savefig(image_filename)
+			print(f"Saved image {image_filename}")
 		plt.show(block=block)
 		
 
