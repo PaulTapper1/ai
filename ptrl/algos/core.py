@@ -85,14 +85,14 @@ class ActorCore:
 			reward, steps, episode_reward = do_episode(self, create_env_fn=create_env_fn, visualize=True)
 			print(f"visualize: episode {i_episode + 1} ended: steps = {steps+1}, episode_reward = {episode_reward:0.1f}, last step reward = {reward:0.1f}")
 	
-	def test(self, create_env_fn, num_test_episodes=20, seed_offset = 0, visualize=False):
-		print(f"Running {num_test_episodes} test episodes")
+	def test(self, create_env_fn, num_test_episodes=20, seed_offset = 0, visualize=False, test_name=""):
+		#print(f"Running {num_test_episodes} test episodes (seed_offset = {seed_offset})")
 		results = []
 		for test_number in range(num_test_episodes):
+			seed = seed_offset+test_number
 			last_step_reward, steps, episode_reward = self.do_episode(create_env_fn=create_env_fn, 
-									  seed=seed_offset,#+test_number,
-									  visualize=visualize)
-			print(f"test episode {test_number} ended: steps = {steps+1}, episode_reward = {episode_reward:0.1f}, last step reward = {last_step_reward:0.1f}")
+									  seed=seed, visualize=visualize)
+			print(f"test {test_name}episode {test_number} (seed {seed}) ended: steps = {steps+1}, episode_reward = {episode_reward:0.1f}, last step reward = {last_step_reward:0.1f}")
 			results.append(episode_reward)
 		average = np.mean(np.array(results))
 		print(f"After {num_test_episodes} tests, got average epsiode score = {average:0.1f}")
@@ -316,7 +316,7 @@ class Logger():
 		if data_to_plot == None:
 			data_to_plot = self.data.keys()
 			
-		fig = plt.figure(num=1)
+		fig = plt.figure(num=1) #, figsize=(12,8))
 		plt.clf()
 		fig.canvas.manager.set_window_title(self.name)
 		num_graphs = len(data_to_plot)
@@ -355,7 +355,7 @@ class Logger():
 							ax.plot(np.arange(smooth//2, smooth//2+len(smoothed)),smoothed, linewidth=linewidth)
 			ax.set_title(chart_title, fontsize=fontsize, loc="left")
 		
-		plt.pause(0.01)  # pause a bit so that plots are updated
+		plt.pause(0.1)  # pause a bit so that plots are updated
 		plt.show(block=block)
 		
 
@@ -472,7 +472,7 @@ class AlgoBase:
 				self.save()
 			
 	def test_actor(self, **kwargs):
-		return self.actor.test(**kwargs)
+		return self.actor.test(create_env_fn=self.create_env_fn, **kwargs)
 
 	def show_graph(self):
 		self.logger.plot(self.data_to_plot)

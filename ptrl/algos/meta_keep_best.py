@@ -17,14 +17,18 @@ class MetaAlgo(core.AlgoBase):
 		self.algo.save_handler = self
 		self.algo.logger.name = self.logger.name
 		self.algo.episode_ended_handler = self	# use to change standard behaviour (eg- for a meta-algorithm)
-		self.algo.data_to_plot=["episode_reward",["most_recent_actor_score","best_actor_score"],"last_step_reward","episode_durations"]
+		self.algo.data_to_plot=["episode_reward",["most_recent_actor_score","best_actor_score"],"episodes_before_revert_to_best_cursor","last_step_reward","episode_durations"]
 
 		self.best_actor = self.algo.actor.create_copy()
 		self.best_actor_score = -1000				# TODO - get a better way of finding a starting value
 		self.most_recent_actor_score = -1000			# TODO - get a better way of finding a starting value
-		self.update_best_actor_every_frames = 10
-		self.revert_to_best_actor_every_actor_updates = 4
+		#self.update_best_actor_every_frames = 10
+		self.episodes_before_revert_to_best = 40
+		self.episodes_before_revert_to_best_cursor = self.episodes_before_revert_to_best
+		self.cooldown_after_tests = 5
+		self.cooldown_after_tests_cursor = self.cooldown_after_tests
 		self.num_test_episodes = 5
+		self.test_seed = np.random.randint(1000)
 		self.load_if_save_exists()
 
 	def save(self):
@@ -40,6 +44,9 @@ class MetaAlgo(core.AlgoBase):
 		self.algo.saver.load_data_into( "best_actor",		self.best_actor.mlp, 	is_net=True )
 		self.best_actor_score = self.algo.logger.get_latest_value("best_actor_score")
 		self.most_recent_actor_score = self.algo.logger.get_latest_value("most_recent_actor_score")
+		self.test_seed = self.algo.logger.get_latest_value("test_seed")
+		self.episodes_before_revert_to_best_cursor = self.algo.logger.get_latest_value("episodes_before_revert_to_best_cursor")
+		self.cooldown_after_tests_cursor = self.algo.logger.get_latest_value("cooldown_after_tests_cursor")
 
 	def visualize(self, **kwargs):
 		temp_actor = self.algo.actor
@@ -50,34 +57,47 @@ class MetaAlgo(core.AlgoBase):
 	def loop_episodes(self, **kwargs):
 		self.algo.loop_episodes(**kwargs)
 
+	def get_score_for_actor(self, actor, test_name=""):
+		results, average = actor.test(create_env_fn=self.algo.create_env_fn,
+									  num_test_episodes=self.num_test_episodes, 
+									  seed_offset=self.test_seed,
+									  test_name=test_name)
+		return average
+
 	def episode_ended(self, last_step_reward, steps, episode_reward):
-		# log out any algorithm specific data you want to track
+		# check for and update the best actor
+		if self.cooldown_after_tests_cursor > 0:
+			self.cooldown_after_tests_cursor -= 1
+		else:
+			if episode_reward > self.best_actor_score:
+				self.cooldown_after_tests_cursor = self.cooldown_after_tests
+				self.test_seed += 1
+				self.best_actor_score = self.get_score_for_actor(actor=self.best_actor, test_name="best actor ")
+				self.most_recent_actor_score = self.get_score_for_actor(actor=self.algo.actor, test_name="current actor ")
+				if self.most_recent_actor_score > self.best_actor_score:
+					self.best_actor_score = self.most_recent_actor_score
+					self.best_actor = self.algo.actor.create_copy()
+					self.episodes_before_revert_to_best_cursor = self.episodes_before_revert_to_best
+					print(f"Updated best actor (score = {self.best_actor_score:0.1f})")
+				else:
+					print(f"Keeping best actor (score = {self.best_actor_score:0.1f})")
 		
-		# check for and update the best actor so far
-		if self.algo.logger.get_latest_value("episodes")%self.update_best_actor_every_frames == self.update_best_actor_every_frames-1:
-			results = self.algo.test_actor(num_test_episodes=self.num_test_episodes)
-			self.most_recent_actor_score = np.mean(np.array(results))
-			if self.most_recent_actor_score > self.best_actor_score:
-				self.best_actor_score = self.most_recent_actor_score
-				self.best_actor = self.algo.actor
-				print(f"Updated best actor (score = {self.best_actor_score:0.1f})")
-				
-		# if best actor is better than most recently tested actor, then revert back to the best one and continue from there again
-		revert_to_best_actor_every_frames = self.revert_to_best_actor_every_actor_updates * self.update_best_actor_every_frames
-		if self.algo.logger.get_latest_value("episodes")%revert_to_best_actor_every_frames == revert_to_best_actor_every_frames-1:
-			if self.most_recent_actor_score < self.best_actor_score:
-				self.algo.actor = self.best_actor
-				self.most_recent_actor_score = self.best_actor_score
-				print(f"Reverting best actor (score = {self.best_actor_score:0.1f})")
-				
+		if self.episodes_before_revert_to_best_cursor > 0:
+			self.episodes_before_revert_to_best_cursor -= 1
+		else:
+			self.episodes_before_revert_to_best_cursor = self.episodes_before_revert_to_best
+			self.algo.actor = self.best_actor.create_copy()
+			self.most_recent_actor_score = self.best_actor_score
+			print(f"Reverting to best actor (score = {self.best_actor_score:0.1f})")
+									
 		self.algo.logger.set_frame_value("most_recent_actor_score",	self.most_recent_actor_score)
-		self.algo.logger.set_frame_value("best_actor_score",	self.best_actor_score)
+		self.algo.logger.set_frame_value("best_actor_score",		self.best_actor_score)
+		self.algo.logger.set_frame_value("test_seed",				self.test_seed)
+		self.algo.logger.set_frame_value("episodes_before_revert_to_best_cursor",	self.episodes_before_revert_to_best_cursor)
+		self.algo.logger.set_frame_value("cooldown_after_tests_cursor",	self.cooldown_after_tests_cursor)
 		self.algo.episode_ended(last_step_reward, steps, episode_reward)		# do all the standard stuff at the end of an episode
 		# saving will be triggered by algo
 
 	def test_actor(self, **kwargs):
-		temp_actor = self.algo.actor
-		self.algo.actor = self.best_actor
-		results = self.algo.test_actor(**kwargs)
-		self.algo.actor = temp_actor
+		results, average = self.best_actor.test(create_env_fn=self.algo.create_env_fn, **kwargs)
 		return results
