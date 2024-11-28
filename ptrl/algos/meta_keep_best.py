@@ -53,6 +53,10 @@ class MetaAlgo(core.AlgoBase):
 		# for i in range(len(data_to_fix)):
 			# if data_to_fix[i] < -500:
 				# data_to_fix[i] = -500
+		# data_to_fix = self.algo.logger.data["most_recent_actor_score"]
+		# for i in range(len(data_to_fix)):
+			# if data_to_fix[i] < -500:
+				# data_to_fix[i] = -500
 
 	def visualize(self, **kwargs):
 		temp_actor = self.algo.actor
