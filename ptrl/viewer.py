@@ -6,7 +6,7 @@ def view_graph_for_training_run(savename):
 	logger = core.Logger(savename)
 	saver.load_data_into( "logger", 			logger )
 	#logger.plot(data_to_plot=["episode_reward", "most_recent_av_test_score", "last_step_reward","episode_durations","memory_size","epsilon"])
-	logger.plot(data_to_plot=["episode_reward",["most_recent_actor_score","best_actor_score"],"last_step_reward","episode_durations"])
+	logger.plot(data_to_plot=["episode_reward",["most_recent_actor_score","best_actor_score"],"episodes_before_revert_to_best_cursor","last_step_reward","episode_durations","epsilon"])
 	
 
 #core.Experiment( "benchmark_dqn_LunarLander300", [[0]]).plot()

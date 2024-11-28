@@ -2,6 +2,9 @@ import gymnasium as gym
 import algos.core as core
 import algos.environments as env
 
+show_graphs = True
+#show_graphs = False
+
 ############################################
 # select the learning algorithm to use
 import algos.dqn as algo_type
@@ -27,7 +30,7 @@ def run_experiment(settings):
 		[
 			[0,1,2,3,4,5,6,7,8,9]
 		] )
-	if len(experiment.completed_experiments) > 0:
+	if show_graphs and len(experiment.completed_experiments) > 0:
 		experiment.plot()
 	while experiment.iterate():
 		this_experiment = experiment.experiment
@@ -45,20 +48,21 @@ def run_experiment(settings):
 		#if meta_algo.algo.steps_done > 0:
 		#	meta_algo.visualize(num_episodes=10)
 		
-		meta_algo.loop_episodes(num_episodes=num_episodes, visualize_every=0, show_graph=True)
+		meta_algo.loop_episodes(num_episodes=num_episodes, visualize_every=0, show_graph=show_graphs)
 
 		results = meta_algo.test_actor(num_test_episodes=num_test_episodes_per_experiment, seed_offset=int(1e6))
 		print(f"Episode rewards = {results}")
 		experiment.experiment_completed(results)
-		experiment.plot()
+		if show_graphs:
+			experiment.plot()
 	print(f"{experiment_savename} finished")
 	experiment.plot(block=True, save_image=True)
 
 def visualizer_actor_from_run(savename):
 	actor = core.MLPActorDiscreteActions(create_env_fn, hidden_layer_sizes=[256,128,64,32])
 	saver = core.Saver(savename)
-	saver.load_data_into("actor", actor.mlp, True)
-	actor.test(create_env_fn=create_env_fn, num_test_episodes=5, visualize=True) #, seed_offset=1e6)
+	saver.load_data_into("best_actor", actor.mlp, True)
+	actor.test(create_env_fn=create_env_fn, num_test_episodes=10, visualize=True) #, seed_offset=1e6)
 
 
 # run_experiment( { "hidden_layer_sizes" : [64,32,16] } )
@@ -68,4 +72,4 @@ def visualizer_actor_from_run(savename):
 # run_experiment( { "hidden_layer_sizes" : [256,256,256] } )
 run_experiment( { "hidden_layer_sizes" : [256,128,64,32] } )
 		
-#visualizer_actor_from_run("meta_keep_best_dqn_LunarLanderModWithWind_256_128_64_32_ex0")
+#visualizer_actor_from_run("meta_keep_best_dqn_LunarLanderModWithWind_256_128_64_32_ex3")

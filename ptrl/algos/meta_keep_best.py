@@ -17,15 +17,15 @@ class MetaAlgo(core.AlgoBase):
 		self.algo.save_handler = self
 		self.algo.logger.name = self.logger.name
 		self.algo.episode_ended_handler = self	# use to change standard behaviour (eg- for a meta-algorithm)
-		self.algo.data_to_plot=["episode_reward",["most_recent_actor_score","best_actor_score"],"episodes_before_revert_to_best_cursor","last_step_reward","episode_durations"]
+		self.algo.data_to_plot=["episode_reward",["most_recent_actor_score","best_actor_score"],"episodes_before_revert_to_best_cursor","last_step_reward","episode_durations","epsilon"]
 
 		self.best_actor = self.algo.actor.create_copy()
-		self.best_actor_score = -1000				# TODO - get a better way of finding a starting value
-		self.most_recent_actor_score = -1000			# TODO - get a better way of finding a starting value
-		#self.update_best_actor_every_frames = 10
-		self.episodes_before_revert_to_best = 40
+		self.best_actor_score = -500				# TODO - get a better way of finding a starting value
+		self.most_recent_actor_score = self.best_actor_score
+		self.episodes_before_revert_to_best = 100
 		self.episodes_before_revert_to_best_cursor = self.episodes_before_revert_to_best
-		self.cooldown_after_tests = 5
+		self.cooldown_after_tests = 20
+		self.epsilon_multiplier_on_revert_to_best = 4
 		self.cooldown_after_tests_cursor = self.cooldown_after_tests
 		self.num_test_episodes = 5
 		self.test_seed = np.random.randint(1000)
@@ -47,6 +47,12 @@ class MetaAlgo(core.AlgoBase):
 		self.test_seed = self.algo.logger.get_latest_value("test_seed")
 		self.episodes_before_revert_to_best_cursor = self.algo.logger.get_latest_value("episodes_before_revert_to_best_cursor")
 		self.cooldown_after_tests_cursor = self.algo.logger.get_latest_value("cooldown_after_tests_cursor")
+
+		# # Hack to fix up some data in save
+		# data_to_fix = self.algo.logger.data["best_actor_score"]
+		# for i in range(len(data_to_fix)):
+			# if data_to_fix[i] < -500:
+				# data_to_fix[i] = -500
 
 	def visualize(self, **kwargs):
 		temp_actor = self.algo.actor
@@ -71,7 +77,7 @@ class MetaAlgo(core.AlgoBase):
 		else:
 			if episode_reward > self.best_actor_score:
 				self.cooldown_after_tests_cursor = self.cooldown_after_tests
-				self.test_seed += 1
+				self.test_seed += self.num_test_episodes
 				self.best_actor_score = self.get_score_for_actor(actor=self.best_actor, test_name="best actor ")
 				self.most_recent_actor_score = self.get_score_for_actor(actor=self.algo.actor, test_name="current actor ")
 				if self.most_recent_actor_score > self.best_actor_score:
@@ -88,7 +94,8 @@ class MetaAlgo(core.AlgoBase):
 			self.episodes_before_revert_to_best_cursor = self.episodes_before_revert_to_best
 			self.algo.actor = self.best_actor.create_copy()
 			self.most_recent_actor_score = self.best_actor_score
-			print(f"Reverting to best actor (score = {self.best_actor_score:0.1f})")
+			self.algo.epsilon = min( self.algo.EPS_START, self.algo.epsilon * self.epsilon_multiplier_on_revert_to_best)
+			print(f"Reverting to best actor (score = {self.best_actor_score:0.1f}) and increasing epsilon")
 									
 		self.algo.logger.set_frame_value("most_recent_actor_score",	self.most_recent_actor_score)
 		self.algo.logger.set_frame_value("best_actor_score",		self.best_actor_score)

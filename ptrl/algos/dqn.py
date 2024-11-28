@@ -25,15 +25,9 @@ class Algo(core.AlgoBase):
 		self.saver.load_data_into( "actor",				self.actor.mlp, 		is_net=True )
 		self.saver.load_data_into( "target_actor",		self.target_actor.mlp, 	is_net=True )
 	
-	def get_epsilon(self):
-		decay = self.logger.get_latest_value("episodes")		 # epsilon based on episodes
-		return self.EPS_END + (self.EPS_START - self.EPS_END) * \
-			math.exp(-1. * decay / self.EPS_DECAY)
-
 	def select_action(self, observation):
-		eps_threshold = self.get_epsilon()
 		self.steps_done += 1
-		if random.random() > eps_threshold:
+		if random.random() > self.epsilon:
 			action = self.actor.select_action(observation)
 			return action
 		else:
@@ -138,7 +132,6 @@ class Algo(core.AlgoBase):
 
 	def episode_ended(self, last_step_reward, steps, episode_reward):
 		# log out any algorithm specific data you want to track
-		self.logger.set_frame_value("epsilon",				self.get_epsilon())
 		super().episode_ended(last_step_reward, steps, episode_reward)		# do all the standard stuff at the end of an episode
 
 #####################################################################################

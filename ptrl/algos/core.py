@@ -82,7 +82,7 @@ class ActorCore:
 	
 	def visualize(self, create_env_fn, num_episodes=5):
 		for i_episode in range(num_episodes):
-			reward, steps, episode_reward = do_episode(self, create_env_fn=create_env_fn, visualize=True)
+			reward, steps, episode_reward = self.do_episode(create_env_fn=create_env_fn, visualize=True)
 			print(f"visualize: episode {i_episode + 1} ended: steps = {steps+1}, episode_reward = {episode_reward:0.1f}, last step reward = {reward:0.1f}")
 	
 	def test(self, create_env_fn, num_test_episodes=20, seed_offset = 0, visualize=False, test_name=""):
@@ -322,6 +322,7 @@ class Logger():
 		num_graphs = len(data_to_plot)
 		height_ratios = [1]*num_graphs
 		height_ratios[0] = 3			# make the main graph taller than the rest
+		height_ratios[1] = 3			# make the main graph taller than the rest
 		gs = gridspec.GridSpec(num_graphs, 1, height_ratios=height_ratios, hspace=0.8)
 		fontsize = 8
 		linewidth = 1
@@ -361,7 +362,7 @@ class Logger():
 
 #####################################################################################
 # AlgoBase
-import inspect
+import math
 
 def generic_get_save_name(algo_name, env_name, settings):
 	save_name = algo_name+"_"+env_name
@@ -388,7 +389,7 @@ class AlgoBase:
 		self.EPS_START = 0.9
 		self.EPS_END = 0.05
 		#self.EPS_DECAY = 5000 #1000   # based on steps
-		self.EPS_DECAY = 50   # based on episodes
+		self.EPS_HALF_LIFE = 20    # based on episodes
 		self.TAU = 0.005
 		self.LR = 1e-4
 		self.MEM_SIZE = 10000
@@ -407,6 +408,8 @@ class AlgoBase:
 		self.device = get_device()
 		self.data_to_plot = ["episode_reward","last_step_reward","episode_durations","memory_size"]
 		self.episode_ended_handler = None	# use to change standard behaviour (eg- for a meta-algorithm)
+		self.epsilon = self.EPS_START
+		self.epsilon_decay = math.exp(-math.log(2.) / self.EPS_HALF_LIFE)
 		
 	def get_save_name(self):
 		save_name = generic_get_save_name( self.name, self.env_name, self.settings )
@@ -430,7 +433,8 @@ class AlgoBase:
 		self.saver.load_data_into( "memory",			self.memory )
 		self.saver.load_data_into( "settings", 			self.settings )
 		self.saver.load_data_into( "logger", 			self.logger )
-		self.steps_done = self.logger.get_latest_value("steps_done")
+		self.steps_done 	= self.logger.get_latest_value("steps_done")
+		self.epsilon 		= self.logger.get_latest_value("epsilon")
 				
 	def load_if_save_exists(self):
 		if self.saver.save_exists():
@@ -444,7 +448,8 @@ class AlgoBase:
 		while i_episode < num_episodes :
 			i_episode += 1
 			last_step_reward, steps, episode_reward, episode_recording = self.do_episode()
-			self.show_graph()
+			if show_graph:
+				self.show_graph()
 			# if last_step_reward >= 100:	# TODO: for this to work, we'll need the environment to be deterministic, so will need to record the random seed
 				# print(f"As last_step_reward = {last_step_reward}, visualize episode replay")
 				# self.actor.visualize_model_from_recording(self.create_env_fn, episode_recording)
@@ -453,19 +458,21 @@ class AlgoBase:
 					self.visualize(num_episodes = 1)
 
 	def episode_ended_outer(self, last_step_reward, steps, episode_reward):
+		print(f"episode_ended {self.logger.get_latest_value('episodes') + 1}: steps = {steps+1}, episode_reward = {episode_reward:0.1f}, last step reward = {last_step_reward:0.1f}") 
 		if self.episode_ended_handler is not None:
 			return self.episode_ended_handler.episode_ended(last_step_reward, steps, episode_reward)
 		return self.episode_ended(last_step_reward, steps, episode_reward)
 
 	def episode_ended(self, last_step_reward, steps, episode_reward):
 		this_episode = self.logger.get_latest_value("episodes") + 1
-		print(f"episode_ended {this_episode}: steps = {steps+1}, episode_reward = {episode_reward:0.1f}, last step reward = {last_step_reward:0.1f}") 
+		self.decay_epsilon()
 		self.logger.set_frame_value("episodes",						this_episode)
 		self.logger.set_frame_value("steps_done",					self.steps_done)
 		self.logger.set_frame_value("memory_size",					len(self.memory))
 		self.logger.set_frame_value("episode_durations",			steps + 1)
 		self.logger.set_frame_value("episode_reward",				episode_reward)
 		self.logger.set_frame_value("last_step_reward",				last_step_reward)
+		self.logger.set_frame_value("epsilon",						self.epsilon)
 		self.logger.next_frame()
 		if self.save_every_frames > 0:
 			if self.logger.get_latest_value("episodes")%self.save_every_frames == 0:
@@ -477,6 +484,8 @@ class AlgoBase:
 	def show_graph(self):
 		self.logger.plot(self.data_to_plot)
 		
+	def decay_epsilon(self):
+		self.epsilon = (self.epsilon-self.EPS_END)*self.epsilon_decay + self.EPS_END
 
 #####################################################################################
 # Saveable
