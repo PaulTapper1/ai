@@ -21,6 +21,18 @@ def print_error(message):
 	exit()
 
 #####################################################################################
+# Saveable
+class Saveable():
+	def to_saveable(self):
+		return self
+		
+	def from_saveable(self, saveable):
+		self = saveable
+
+class SaveableDict(dict, Saveable):
+	pass
+
+#####################################################################################
 # Torch interface classes
 import torch
 import torch.nn as nn
@@ -81,9 +93,13 @@ class ActorCore:
 		return observation
 	
 	def visualize(self, create_env_fn, num_episodes=5):
+		results = []
 		for i_episode in range(num_episodes):
 			reward, steps, episode_reward = self.do_episode(create_env_fn=create_env_fn, visualize=True)
 			print(f"visualize: episode {i_episode + 1} ended: steps = {steps+1}, episode_reward = {episode_reward:0.1f}, last step reward = {reward:0.1f}")
+			results.append(episode_reward)
+		average = np.mean(np.array(results))
+		print(f"After {num_episodes} episodes, got average epsiode score = {average:0.1f}")
 	
 	def test(self, create_env_fn, num_test_episodes=20, seed_offset = 0, visualize=False, test_name=""):
 		#print(f"Running {num_test_episodes} test episodes (seed_offset = {seed_offset})")
@@ -95,7 +111,7 @@ class ActorCore:
 			print(f"test {test_name}episode {test_number} (seed {seed}) ended: steps = {steps+1}, episode_reward = {episode_reward:0.1f}, last step reward = {last_step_reward:0.1f}")
 			results.append(episode_reward)
 		average = np.mean(np.array(results))
-		print(f"After {num_test_episodes} tests, got average epsiode score = {average:0.1f}")
+		print(f"After {num_test_episodes} episodes, got average epsiode score = {average:0.1f}")
 		return results, average
 
 	# run the actor on policy for one episode (optionally visualizing it) and return the results
@@ -193,100 +209,136 @@ import torch.nn.functional as F
 from torch.distributions.normal import Normal
 
 def combined_shape(length, shape=None):
-    if shape is None:
-        return (length,)
-    return (length, shape) if np.isscalar(shape) else (length, *shape)
+	if shape is None:
+		return (length,)
+	return (length, shape) if np.isscalar(shape) else (length, *shape)
 
 def mlp(sizes, activation, output_activation=nn.Identity):
-    layers = []
-    for j in range(len(sizes)-1):
-        act = activation if j < len(sizes)-2 else output_activation
-        layers += [nn.Linear(sizes[j], sizes[j+1]), act()]
-    return nn.Sequential(*layers)
+	layers = []
+	for j in range(len(sizes)-1):
+		act = activation if j < len(sizes)-2 else output_activation
+		layers += [nn.Linear(sizes[j], sizes[j+1]), act()]
+	return nn.Sequential(*layers)
 
 def count_vars(module):
-    return sum([np.prod(p.shape) for p in module.parameters()])
+	return sum([np.prod(p.shape) for p in module.parameters()])
 
 LOG_STD_MAX = 2
 LOG_STD_MIN = -20
 
-class SquashedGaussianMLPActor(nn.Module):
-    def __init__(self, obs_dim, act_dim, hidden_sizes, activation, act_limit):
-        super().__init__()
-        self.net = mlp([obs_dim] + list(hidden_sizes), activation, activation)
-        self.mu_layer = nn.Linear(hidden_sizes[-1], act_dim)
-        self.log_std_layer = nn.Linear(hidden_sizes[-1], act_dim)
-        self.act_limit = act_limit
+class SquashedGaussianMLPActor(nn.Module, Saveable):
+	def __init__(self, obs_dim, act_dim, hidden_sizes, activation, act_limit):
+		super().__init__()
+		self.net = mlp([obs_dim] + list(hidden_sizes), activation, activation)
+		self.mu_layer = nn.Linear(hidden_sizes[-1], act_dim)
+		self.log_std_layer = nn.Linear(hidden_sizes[-1], act_dim)
+		self.act_limit = act_limit
+		
+	def forward(self, obs, deterministic=False, with_logprob=True):
+		net_out = self.net(obs)
+		mu = self.mu_layer(net_out)
+		log_std = self.log_std_layer(net_out)
+		log_std = torch.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
+		std = torch.exp(log_std)
+		# Pre-squash distribution and sample
+		pi_distribution = Normal(mu, std)
+		if deterministic:
+			# Only used for evaluating policy at test time.
+			pi_action = mu
+		else:
+			pi_action = pi_distribution.rsample()
+		if with_logprob:
+			# Compute logprob from Gaussian, and then apply correction for Tanh squashing.
+			# NOTE: The correction formula is a little bit magic. To get an understanding 
+			# of where it comes from, check out the original SAC paper (arXiv 1801.01290) 
+			# and look in appendix C. This is a more numerically-stable equivalent to Eq 21.
+			# Try deriving it yourself as a (very difficult) exercise. :)
+			logp_pi = pi_distribution.log_prob(pi_action).sum(axis=-1)
+			logp_pi -= (2*(np.log(2) - pi_action - F.softplus(-2*pi_action))).sum(axis=1)
+		else:
+			logp_pi = None
+		pi_action = torch.tanh(pi_action)
+		pi_action = self.act_limit * pi_action
+		return pi_action, logp_pi
 
-    def forward(self, obs, deterministic=False, with_logprob=True):
-        net_out = self.net(obs)
-        mu = self.mu_layer(net_out)
-        log_std = self.log_std_layer(net_out)
-        log_std = torch.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
-        std = torch.exp(log_std)
+	def to_saveable(self):
+		return { "net" 				: self.net.state_dict(),
+				 "mu_layer" 		: self.mu_layer.state_dict(),
+				 "log_std_layer" 	: self.log_std_layer.state_dict(),
+				 "act_limit" 		: self.act_limit,
+			   }
+		
+	def from_saveable(self, saveable):
+		self.net.load_state_dict(saveable["net"])
+		self.net.eval()
+		self.mu_layer.load_state_dict(saveable["mu_layer"])
+		self.mu_layer.eval()
+		self.log_std_layer.load_state_dict(saveable["log_std_layer"])
+		self.log_std_layer.eval()
+		self.act_limit = saveable["act_limit"]
 
-        # Pre-squash distribution and sample
-        pi_distribution = Normal(mu, std)
-        if deterministic:
-            # Only used for evaluating policy at test time.
-            pi_action = mu
-        else:
-            pi_action = pi_distribution.rsample()
+class MLPQFunction(nn.Module, Saveable):
+	def __init__(self, obs_dim, act_dim, hidden_sizes, activation):
+		super().__init__()
+		self.q = mlp([obs_dim + act_dim] + list(hidden_sizes) + [1], activation)
 
-        if with_logprob:
-            # Compute logprob from Gaussian, and then apply correction for Tanh squashing.
-            # NOTE: The correction formula is a little bit magic. To get an understanding 
-            # of where it comes from, check out the original SAC paper (arXiv 1801.01290) 
-            # and look in appendix C. This is a more numerically-stable equivalent to Eq 21.
-            # Try deriving it yourself as a (very difficult) exercise. :)
-            logp_pi = pi_distribution.log_prob(pi_action).sum(axis=-1)
-            logp_pi -= (2*(np.log(2) - pi_action - F.softplus(-2*pi_action))).sum(axis=1)
-        else:
-            logp_pi = None
+	def forward(self, obs, act):
+		q = self.q(torch.cat([obs, act], dim=-1))
+		return torch.squeeze(q, -1) # Critical to ensure q has right shape.
 
-        pi_action = torch.tanh(pi_action)
-        pi_action = self.act_limit * pi_action
-        return pi_action, logp_pi
-
-class MLPQFunction(nn.Module):
-
-    def __init__(self, obs_dim, act_dim, hidden_sizes, activation):
-        super().__init__()
-        self.q = mlp([obs_dim + act_dim] + list(hidden_sizes) + [1], activation)
-
-    def forward(self, obs, act):
-        q = self.q(torch.cat([obs, act], dim=-1))
-        return torch.squeeze(q, -1) # Critical to ensure q has right shape.
-
-class MLPActorCritic(MLPActor):
-
-    def __init__(self, create_env_fn, hidden_layer_sizes=[256,256], **kwargs):
-
+	def to_saveable(self):
+		return { "q" : self.q.state_dict()
+			   }
+		
+	def from_saveable(self, saveable):
+		self.q.load_state_dict(saveable["q"])
+		self.q.eval()
+		
+class MLPActorCritic(ActorCore, nn.Module, Saveable):
+	def __init__(self, create_env_fn, hidden_layer_sizes=[256,256],
+				 activation=nn.ReLU, **kwargs):
 		temp_env = create_env_fn()
-		if not f"{temp_env.action_space}".startswith("Discrete"):
-			print_error("Cannot create an MLPActorDiscreteActions using a continuous action space")
-		state, info = temp_env.reset()
-        observation_dim = state.shape[0]
-        action_dim = temp_env.action_space.shape[0]
-        act_limit = temp_env.action_space.high[0]
+		if f"{temp_env.action_space}".startswith("Discrete"):
+			print_error(f"Cannot create an MLPActorCritic using discrete action space {temp_env.action_space}")
+		observation_dim = temp_env.observation_space.shape[0]
+		action_dim = temp_env.action_space.shape[0]
+		act_limit = temp_env.action_space.high[0]
 		print(f"MLPActorCritic: environment {temp_env.spec.id} observation_dim = {observation_dim}, action_dim = {action_dim}")
 		temp_env.close()
-		
-        super().__init__(observation_dim, action_dim, hidden_layer_sizes=hidden_layer_sizes, **kwargs)
+		super().__init__() #observation_dim, action_dim, hidden_layer_sizes=hidden_layer_sizes, **kwargs)
+		# build policy and value functions
+		self.pi = SquashedGaussianMLPActor(observation_dim, action_dim, hidden_layer_sizes, activation, act_limit)
+		self.q1 = MLPQFunction(observation_dim, action_dim, hidden_layer_sizes, activation)
+		self.q2 = MLPQFunction(observation_dim, action_dim, hidden_layer_sizes, activation)
 
-        # build policy and value functions
-        self.pi = SquashedGaussianMLPActor(observation_dim, action_dim, hidden_layer_sizes, activation, act_limit)
-        self.q1 = MLPQFunction(observation_dim, action_dim, hidden_layer_sizes, activation)
-        self.q2 = MLPQFunction(observation_dim, action_dim, hidden_layer_sizes, activation)
-
-    def act(self, obs, deterministic=False):
-        with torch.no_grad():
-            a, _ = self.pi(obs, deterministic, False)
-            return a.numpy()
+	def act(self, obs, deterministic=False):
+		with torch.no_grad():
+			a, _ = self.pi(obs, deterministic, False)
+			return a.numpy()
 
 	def select_action(self,observation):
-		return self.act(observation, deterministic=True)
+		return self.act(torch.as_tensor(observation, dtype=torch.float32), deterministic=True)
 
+	# def add_data_to_save(self, name, saver):
+	# 	saver.add_data_to_save( name+"_pi",			self.pi)#, 		is_net=True )
+	# 	saver.add_data_to_save( name+"_q1",			self.q1)#, 		is_net=True )
+	# 	saver.add_data_to_save( name+"_q2",			self.q2)#, 		is_net=True )
+	#
+	# def load_data_into( self, name, saver):
+	# 	saver.load_data_into( name+"_pi",			self.pi)#, 		is_net=True )
+	# 	saver.load_data_into( name+"_q1",			self.q1)#, 		is_net=True )
+	# 	saver.load_data_into( name+"_q2",			self.q2)#, 		is_net=True )
+
+	def to_saveable(self):
+		return { "pi" : self.pi.to_saveable(),
+				 "q1" : self.q1.to_saveable(),
+				 "q2" : self.q2.to_saveable(),
+			   }
+		
+	def from_saveable(self, saveable):
+		self.pi.from_saveable(saveable["pi"])
+		self.q1.from_saveable(saveable["q1"])
+		self.q2.from_saveable(saveable["q2"])
 
 #####################################################################################
 # Saving and Loading
@@ -308,6 +360,9 @@ class Saver:
 		self.data_to_save [extension] = data_descriptor
 	
 	def save(self):
+		#print("Saving temporarily disabled")	# TEMP PNT
+		#return
+
 		temp_filename = "temp_"+str(uuid.uuid4())
 		for extension, data_descriptor in self.data_to_save.items():
 			data = data_descriptor["data"]
@@ -341,16 +396,17 @@ from collections import namedtuple, deque
 import random
 
 Transition = namedtuple('Transition',
-                        ('state', 'action', 'next_state', 'reward'))
+						('state', 'action', 'next_state', 'reward'))
 
 class AlgoMemory(object):
 
-	def __init__(self, capacity):
+	def __init__(self, item_type, capacity):
+		self.item_type = item_type
 		self.memory = deque([], maxlen=capacity)
 
 	def push(self, *args):
 		"""Save a transition"""
-		self.memory.append(Transition(*args))
+		self.memory.append(item_type(*args))
 
 	def sample(self, batch_size):
 		return random.sample(self.memory, batch_size)
@@ -479,7 +535,7 @@ def generic_get_save_name(algo_name, env_name, settings):
 
 class AlgoBase:
 	def __init__(self, name, create_env_fn, settings):
-		self.settings = Saveable(settings)
+		self.settings = SaveableDict(settings)
 		
 		# TODO - make these settings below part of self.settings
 		
@@ -495,7 +551,7 @@ class AlgoBase:
 		self.EPS_START = 0.9
 		self.EPS_END = 0.05
 		#self.EPS_DECAY = 5000 #1000   # based on steps
-		self.EPS_HALF_LIFE = 20    # based on episodes
+		self.EPS_HALF_LIFE = 20	# based on episodes
 		self.TAU = 0.005
 		self.LR = 1e-4
 		self.MEM_SIZE = 10000
@@ -506,7 +562,7 @@ class AlgoBase:
 		self.env_name = self.env.spec.name
 		save_name = self.get_save_name()
 		self.logger = Logger(save_name)
-		self.memory = AlgoMemory(self.MEM_SIZE)
+		#self.memory = AlgoMemory(self.MEM_SIZE)
 		self.saver = Saver(save_name)
 		self.save_handler = None
 		self.save_every_frames = 5
@@ -541,6 +597,7 @@ class AlgoBase:
 		self.saver.load_data_into( "logger", 			self.logger )
 		self.steps_done 	= self.logger.get_latest_value("steps_done")
 		self.epsilon 		= self.logger.get_latest_value("epsilon")
+		print(f"{self} loaded {self.saver.filename} with {self.logger.get_latest_value('episodes')} episodes")
 				
 	def load_if_save_exists(self):
 		if self.saver.save_exists():
@@ -553,12 +610,9 @@ class AlgoBase:
 		i_episode = self.logger.get_latest_value("episodes")
 		while i_episode < num_episodes :
 			i_episode += 1
-			last_step_reward, steps, episode_reward, episode_recording = self.do_episode()
+			last_step_reward, steps, episode_reward = self.do_episode()
 			if show_graph:
 				self.show_graph()
-			# if last_step_reward >= 100:	# TODO: for this to work, we'll need the environment to be deterministic, so will need to record the random seed
-				# print(f"As last_step_reward = {last_step_reward}, visualize episode replay")
-				# self.actor.visualize_model_from_recording(self.create_env_fn, episode_recording)
 			if visualize_every != 0:
 				if i_episode % visualize_every == 0:
 					self.visualize(num_episodes = 1)
@@ -592,15 +646,6 @@ class AlgoBase:
 		
 	def decay_epsilon(self):
 		self.epsilon = (self.epsilon-self.EPS_END)*self.epsilon_decay + self.EPS_END
-
-#####################################################################################
-# Saveable
-class Saveable(dict):
-	def to_saveable(self):
-		return self
-		
-	def from_saveable(self, saveable):
-		self = saveable
 
 #####################################################################################
 # Experiment
@@ -676,7 +721,7 @@ class Experiment(Saveable):
 		plt.yticks([-200,-100,0,100,200,300])
 		plt.tick_params(axis='x', which='major', labelsize=8)  
 		plt.tick_params(axis='y', which='major', labelsize=8)  
-		for num, (key, data) in enumerate(self.completed_experiments.items()):
+		for num, (key, (data, av)) in enumerate(self.completed_experiments.items()):
 			data.sort()
 			x_coords = np.arange(len(data))*(0.5/len(data)) + float(num)
 			all_points = list(zip(x_coords,data))

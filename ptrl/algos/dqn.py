@@ -96,12 +96,10 @@ class Algo(core.AlgoBase):
 		self.actor.reset()
 		observation_tensor = self.actor.to_tensor_observation(observation)
 		episode_reward = 0
-		episode_recording = []
 		
 		for steps in count():
 			action = self.select_action(observation_tensor)
 			
-			episode_recording.append(action)
 			observation, reward, terminated, truncated, _ = self.env.step(action)
 			episode_reward += reward
 			reward_tensor = self.actor.to_tensor_reward(reward)
@@ -128,7 +126,7 @@ class Algo(core.AlgoBase):
 			if done:
 				self.episode_ended_outer(last_step_reward=reward, steps=steps, episode_reward=episode_reward)
 				break
-		return reward, steps, episode_reward, episode_recording
+		return reward, steps, episode_reward
 
 	def episode_ended(self, last_step_reward, steps, episode_reward):
 		# log out any algorithm specific data you want to track

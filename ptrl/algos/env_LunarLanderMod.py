@@ -281,8 +281,8 @@ class LunarLanderMod(gym.Env, EzPickle):	#PNT
 				-10.0,
 				-0.0,
 				-0.0,
-				-20.0,	#PNT
-				-2.0,	#PNT
+				# -20.0,	#PNT
+				# -2.0,	#PNT
 			]
 		).astype(np.float32)
 		high = np.array(
@@ -299,8 +299,8 @@ class LunarLanderMod(gym.Env, EzPickle):	#PNT
 				10.0,
 				1.0,
 				1.0,
-				20.0,	#PNT
-				2.0,	#PNT
+				# 20.0,	#PNT
+				# 2.0,	#PNT
 			]
 		).astype(np.float32)
 
@@ -689,10 +689,11 @@ class LunarLanderMod(gym.Env, EzPickle):	#PNT
 			20.0 * self.lander.angularVelocity / FPS,
 			1.0 if self.legs[0].ground_contact else 0.0,
 			1.0 if self.legs[1].ground_contact else 0.0,
-			wind_mag,	#PNT
-			torque_mag,	#PNT
+			# wind_mag,	#PNT
+			# torque_mag,	#PNT
 		]
-		assert len(state) == 10	 #PNT
+		#assert len(state) == 10	 #PNT
+		assert len(state) == 8
 
 		reward = 0
 		shaping = (

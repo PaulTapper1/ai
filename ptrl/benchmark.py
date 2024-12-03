@@ -18,14 +18,17 @@ import algos.sac as algo_type
 
 ############################################
 # select environment to train and test on
+#gym.pprint_registry()
 #create_env_fn = env.create_env_fn_CartPole
 #create_env_fn = env.create_env_fn_LunarLander
 #create_env_fn = env.create_env_fn_LunarLanderWithWind
 #create_env_fn = env.create_env_fn_LunarLanderModWithWind
-create_env_fn = env.create_env_fn_LunarLanderContinuous
+#create_env_fn = env.create_env_fn_LunarLanderContinuous
+create_env_fn = env.create_env_fn_LunarLanderContinuousWithWind
+#create_env_fn = env.create_env_fn_MountainCarContinuous
 
 env_name = env.get_env_name_from_create_fn(create_env_fn)
-num_episodes = 5000
+num_episodes = 1000
 num_test_episodes_per_experiment = 20
 
 def run_experiment(settings):
@@ -53,9 +56,9 @@ def run_experiment(settings):
 			# temp_saver = core.Saver("LunarLander_no_wind_128_64_32")
 			# temp_saver.load_data_into("actor", algo.actor.mlp, is_net=True)
 		
-		algo.visualize(num_episodes=10)
-		#if meta_algo.algo.steps_done > 0:
-		#	meta_algo.visualize(num_episodes=5)
+		#algo.visualize(num_episodes=5)
+		if algo.steps_done > 0:
+			algo.visualize(num_episodes=5)
 		
 		algo.loop_episodes(num_episodes=num_episodes, visualize_every=0, show_graph=show_graphs)
 		results = algo.test_actor(num_test_episodes=num_test_episodes_per_experiment, seed_offset=int(1e6))
@@ -68,10 +71,16 @@ def run_experiment(settings):
 	experiment.plot(block=True, save_image=True)
 
 def visualizer_actor_from_run(savename):
-	actor = core.MLPActorDiscreteActions(create_env_fn, hidden_layer_sizes=[256,128,64,32])
-	saver = core.Saver(savename)
-	saver.load_data_into("best_actor", actor.mlp, True)
-	actor.test(create_env_fn=create_env_fn, num_test_episodes=10, visualize=True) #, seed_offset=1e6)
+	algo = algo_type.Algo( create_env_fn, settings={ "hidden_layer_sizes" : [256,256] })
+	algo.saver.filename = savename
+	algo.load()
+	algo.visualize(num_episodes=10)
+	
+	# #actor = core.MLPActorDiscreteActions(create_env_fn, hidden_layer_sizes=[256,128,64,32])
+	# actor = core.MLPActorCritic(create_env_fn, hidden_layer_sizes=[256,256])
+	# saver = core.Saver(savename)
+	# actor.load_data_into( "actor", saver)
+	# actor.visualize(create_env_fn=create_env_fn, num_episodes=10) #, seed_offset=1e6)
 
 
 run_experiment( { "hidden_layer_sizes" : [256,256] } )
@@ -83,4 +92,4 @@ run_experiment( { "hidden_layer_sizes" : [256,256] } )
 # run_experiment( { "hidden_layer_sizes" : [256,256,256] } )
 #run_experiment( { "hidden_layer_sizes" : [256,128,64,32] } )
 		
-#visualizer_actor_from_run("meta_keep_best_dqn_LunarLanderModWithWind_256_128_64_32_ex3")
+#visualizer_actor_from_run("sac_LunarLanderContinuousWithWind_256_256_ex0")

@@ -14,6 +14,7 @@ def get_env_name_from_create_fn(create_env_fn):
 class EnvDummySpec():
 	def __init__(self, name):
 		self.name = name
+		self.id = name
 
 def create_env_fn_CartPole(render_mode=None):
 	return gym.make("CartPole-v1",render_mode=render_mode)		
@@ -31,5 +32,11 @@ def create_env_fn_LunarLanderModWithWind(render_mode=None):
 	return env
 def create_env_fn_LunarLanderContinuous(render_mode=None):
 	return gym.make("LunarLanderContinuous-v3",render_mode=render_mode)	
+def create_env_fn_LunarLanderContinuousWithWind(render_mode=None):
+	env = env_LunarLanderMod.LunarLanderMod(render_mode=render_mode, continuous=True, gravity=-10.0, enable_wind=True, wind_power=15.0, turbulence_power=1.5)	
+	env.spec = EnvDummySpec("LunarLanderContinuousWithWind")
+	return env
+def create_env_fn_MountainCarContinuous(render_mode=None):
+	return gym.make("MountainCarContinuous-v0",render_mode=render_mode)	
 
 
