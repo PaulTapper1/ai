@@ -24,11 +24,12 @@ import algos.sac as algo_type
 #create_env_fn = env.create_env_fn_LunarLanderWithWind
 #create_env_fn = env.create_env_fn_LunarLanderModWithWind
 #create_env_fn = env.create_env_fn_LunarLanderContinuous
-create_env_fn = env.create_env_fn_LunarLanderContinuousWithWind
+#create_env_fn = env.create_env_fn_LunarLanderContinuousWithWind
+create_env_fn = env.create_env_fn_LunarLanderContinuousToDiscreteWithWind
 #create_env_fn = env.create_env_fn_MountainCarContinuous
 
 env_name = env.get_env_name_from_create_fn(create_env_fn)
-num_episodes = 1000
+num_episodes = 2000
 num_test_episodes_per_experiment = 20
 
 def run_experiment(settings):
@@ -57,8 +58,8 @@ def run_experiment(settings):
 			# temp_saver.load_data_into("actor", algo.actor.mlp, is_net=True)
 		
 		#algo.visualize(num_episodes=5)
-		if algo.steps_done > 0:
-			algo.visualize(num_episodes=5)
+		#if algo.steps_done > 0:
+		#	algo.visualize(num_episodes=10)
 		
 		algo.loop_episodes(num_episodes=num_episodes, visualize_every=0, show_graph=show_graphs)
 		results = algo.test_actor(num_test_episodes=num_test_episodes_per_experiment, seed_offset=int(1e6))
@@ -83,13 +84,13 @@ def visualizer_actor_from_run(savename):
 	# actor.visualize(create_env_fn=create_env_fn, num_episodes=10) #, seed_offset=1e6)
 
 
-run_experiment( { "hidden_layer_sizes" : [256,256] } )
+# run_experiment( { "hidden_layer_sizes" : [256,256] } )
 # run_experiment( { "hidden_layer_sizes" : [128,64,32] } )
 # run_experiment( { "hidden_layer_sizes" : [64,32,16] } )
 # run_experiment( { "hidden_layer_sizes" : [32,16,8] } )
 # run_experiment( { "hidden_layer_sizes" : [16,8,4] } )
-# run_experiment( { "hidden_layer_sizes" : [64,32] } )
+run_experiment( { "hidden_layer_sizes" : [128,64] } )
 # run_experiment( { "hidden_layer_sizes" : [256,256,256] } )
 #run_experiment( { "hidden_layer_sizes" : [256,128,64,32] } )
 		
-#visualizer_actor_from_run("sac_LunarLanderContinuousWithWind_256_256_ex0")
+#visualizer_actor_from_run("sac_LunarLanderContinuousWithWind_256_256_ex3")

@@ -76,8 +76,6 @@ class Algo(core.AlgoBase):
 		# sac parameters
 		self.ac_kwargs=dict()
 		self.seed=0, 
-		self.steps_per_epoch=4000
-		self.epochs=100
 		self.replay_size=int(1e6)
 		self.gamma=0.99
 		self.polyak=0.995
@@ -92,20 +90,8 @@ class Algo(core.AlgoBase):
 		self.logger_kwargs=dict()
 		self.save_freq=1
 		
-		self.epoch = 0
-		self.steps_per_epoch_cursor = self.steps_per_epoch
-		self.av_test_episode_reward = -500	# TODO - find a better way of determining the lowest reasonable test score
-		
 		self.actor = core.MLPActorCritic(self.create_env_fn, hidden_layer_sizes=self.settings["hidden_layer_sizes"], learning_rate=self.lr)
 		self.test_env = self.create_env_fn()
-		obs_dim = self.env.observation_space.shape
-		act_dim = self.env.action_space.shape[0]
-
-		# # Action limit for clamping: critically, assumes all dimensions share the same bound!
-		# act_limit = env.action_space.high[0]
-
-		# Create actor-critic module and target networks
-		#ac = actor_critic(env.observation_space, env.action_space, **ac_kwargs)
 		self.target_actor = deepcopy(self.actor)
 
 		# Freeze target networks with respect to optimizers (only update via polyak averaging)
@@ -116,7 +102,8 @@ class Algo(core.AlgoBase):
 		self.q_params = itertools.chain(self.actor.q1.parameters(), self.actor.q2.parameters())
 
 		# Experience buffer
-		#self.replay_buffer = ReplayBuffer(obs_dim=obs_dim, act_dim=act_dim, size=self.replay_size)
+		obs_dim = self.env.observation_space.shape
+		act_dim = self.env.action_space.shape[0]
 		self.memory = ReplayBuffer(obs_dim=obs_dim, act_dim=act_dim, size=self.replay_size)
 
 		# Count variables (protip: try to get a feel for how different size networks behave!)
@@ -127,10 +114,7 @@ class Algo(core.AlgoBase):
 		self.pi_optimizer = Adam(self.actor.pi.parameters(), lr=self.lr)
 		self.q_optimizer = Adam(self.q_params, lr=self.lr)
 
-		# Set up model saving
-		#logger.setup_pytorch_saver(ac)
-
-		self.data_to_plot = ["episode_reward","av_test_episode_reward","last_step_reward","episode_durations","memory_size"]
+		self.data_to_plot = [["episode_reward","recent_test_av"],"last_step_reward","episode_durations","memory_size"]
 		self.load_if_save_exists()
 
 	def add_data_to_save(self):
@@ -142,27 +126,9 @@ class Algo(core.AlgoBase):
 		super().load()
 		self.saver.load_data_into( "actor",				self.actor)
 		self.saver.load_data_into( "target_actor",		self.target_actor)
-		self.steps_per_epoch_cursor 	= self.logger.get_latest_value("steps_per_epoch_cursor")
-		self.epoch						= self.logger.get_latest_value("epoch")
-		self.av_test_episode_reward		= self.logger.get_latest_value("av_test_episode_reward")
-		self.test_agent()
-
-		# List of parameters for both Q-networks (save this for convenience)
-		self.q_params = itertools.chain(self.actor.q1.parameters(), self.actor.q2.parameters())
-		# Set up optimizers for policy and q-function
-		self.pi_optimizer = Adam(self.actor.pi.parameters(), lr=self.lr)
-		self.q_optimizer = Adam(self.q_params, lr=self.lr)
+		#self.actor.test(create_env_fn=self.create_env_fn)
 
 	def episode_ended(self, last_step_reward, steps, episode_reward):
-		self.steps_per_epoch_cursor -= steps
-		if self.steps_per_epoch_cursor <= 0:
-			self.steps_per_epoch_cursor = self.steps_per_epoch
-			self.epoch_ended()
-		
-		self.logger.set_frame_value("steps_per_epoch_cursor",		self.steps_per_epoch_cursor)
-		self.logger.set_frame_value("epoch",						self.epoch)
-		self.logger.set_frame_value("av_test_episode_reward",		self.av_test_episode_reward)
-
 		super().episode_ended(last_step_reward, steps, episode_reward)		# do all the standard stuff at the end of an episode
 
 	# Set up function for computing SAC Q-losses
@@ -217,9 +183,6 @@ class Algo(core.AlgoBase):
 		loss_q.backward()
 		self.q_optimizer.step()
 
-		# Record things
-		#logger.store(LossQ=loss_q.item(), **q_info)
-
 		# Freeze Q-networks so you don't waste computational effort 
 		# computing gradients for them during the policy learning step.
 		for p in self.q_params:
@@ -235,9 +198,6 @@ class Algo(core.AlgoBase):
 		for p in self.q_params:
 			p.requires_grad = True
 
-		# Record things
-		#logger.store(LossPi=loss_pi.item(), **pi_info)
-
 		# Finally, update target networks by polyak averaging.
 		with torch.no_grad():
 			for p, p_targ in zip(self.actor.parameters(), self.target_actor.parameters()):
@@ -250,27 +210,11 @@ class Algo(core.AlgoBase):
 		return self.actor.act(torch.as_tensor(o, dtype=torch.float32), 
 					  deterministic)
 
-	def test_agent(self):
-		print("test_agent")
-		test_episode_rewards = []
-		for j in range(self.num_test_episodes):
-			observation, info = self.test_env.reset()
-			terminated, episode_reward, steps = False, 0, 0
-			while not(terminated or (steps == self.max_ep_len)):
-				# Take deterministic actions at test time 
-				observation, reward, terminated, truncated, _ = self.test_env.step(self.get_action(observation, True))
-				episode_reward += reward
-				steps += 1
-			print(f"Test episode {j}: steps = {steps+1}, episode_reward = {episode_reward:0.1f}, last step reward = {reward:0.1f}") 
-			test_episode_rewards.append(episode_reward)
-		self.av_test_episode_reward = average = np.mean(np.array(test_episode_rewards))
-		print(f"av_test_episode_reward = {self.av_test_episode_reward:0.1f}")
-
 	def do_episode(self):
 		observation, info = self.env.reset()
 		self.actor.reset()
-		#observation_tensor = self.actor.to_tensor_observation(observation)
 		episode_reward = 0
+		start_time = time.time()
 		
 		for steps in count():
 			# Until start_steps have elapsed, randomly sample actions
@@ -300,7 +244,7 @@ class Algo(core.AlgoBase):
 			# end of episode handling
 			self.steps_done += 1
 			if done or (steps == self.max_ep_len):
-				self.episode_ended_outer(last_step_reward=reward, steps=steps, episode_reward=episode_reward)
+				self.episode_ended_outer(last_step_reward=reward, steps=steps, episode_reward=episode_reward, time_taken=time.time() - start_time)
 				break
 
 			# Update handling
@@ -311,55 +255,3 @@ class Algo(core.AlgoBase):
 			
 		return reward, steps, episode_reward
 
-	def epoch_ended(self):
-		self.epoch += 1
-		print(f"Epoch {self.epoch}")
-
-		# Save model
-		#if (epoch % save_freq == 0) or (epoch == epochs):
-			#logger.save_state({'env': env}, None)
-
-		# Test the performance of the deterministic version of the agent.
-		self.test_agent()
-
-		# Log info about epoch
-		#logger.log_tabular('Epoch', epoch)
-		#logger.log_tabular('EpRet', with_min_and_max=True)
-		#logger.log_tabular('TestEpRet', with_min_and_max=True)
-		#logger.log_tabular('EpLen', average_only=True)
-		#logger.log_tabular('TestEpLen', average_only=True)
-		#logger.log_tabular('TotalEnvInteracts', t)
-		#logger.log_tabular('Q1Vals', with_min_and_max=True)
-		#logger.log_tabular('Q2Vals', with_min_and_max=True)
-		#logger.log_tabular('LogPi', with_min_and_max=True)
-		#logger.log_tabular('LossPi', average_only=True)
-		#logger.log_tabular('LossQ', average_only=True)
-		#logger.log_tabular('Time', time.time()-start_time)
-		#logger.dump_tabular()
-		# Log info about epoch
-		
-
-
-if __name__ == '__main__':
-	import argparse
-	parser = argparse.ArgumentParser()
-	#parser.add_argument('--env', type=str, default='HalfCheetah-v5')
-	parser.add_argument('--env', type=str, default='LunarLanderContinuous-v3')
-	parser.add_argument('--hid', type=int, default=256)
-	parser.add_argument('--l', type=int, default=2)
-	parser.add_argument('--gamma', type=float, default=0.99)
-	parser.add_argument('--seed', '-s', type=int, default=0)
-	parser.add_argument('--epochs', type=int, default=50)
-	parser.add_argument('--exp_name', type=str, default='sac')
-	args = parser.parse_args()
-
-	#from spinup.utils.run_utils import setup_logger_kwargs
-	#logger_kwargs = setup_logger_kwargs(args.exp_name, args.seed)
-
-	torch.set_num_threads(torch.get_num_threads())
-
-	sac(lambda **kwargs : gym.make(args.env,**kwargs), actor_critic=core.MLPActorCritic,
-		ac_kwargs=dict(hidden_sizes=[args.hid]*args.l), 
-		gamma=args.gamma, seed=args.seed, epochs=args.epochs,
-		#logger_kwargs=logger_kwargs)
-		)

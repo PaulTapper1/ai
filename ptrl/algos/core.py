@@ -11,6 +11,7 @@ to see a list of all available gyms use...
 	
 see also https://github.com/openai/gym/wiki/Leaderboard
 """
+import time
 
 #####################################################################################
 # Console output
@@ -363,6 +364,7 @@ class Saver:
 		#print("Saving temporarily disabled")	# TEMP PNT
 		#return
 
+		start_time = time.time()
 		temp_filename = "temp_"+str(uuid.uuid4())
 		for extension, data_descriptor in self.data_to_save.items():
 			data = data_descriptor["data"]
@@ -377,7 +379,8 @@ class Saver:
 		for extension in self.data_to_save:
 			os.rename(temp_filename+"."+extension, self.filename+"."+extension)
 		self.data_to_save = {}
-		print(f"Saved {self.filename}")
+		elapsed_time = time.time() - start_time
+		print(f"Saved {self.filename} ({elapsed_time:0.1f} secs)")
 	
 	def save_exists(self):
 		return (len(glob.glob(self.filename+".*")) > 0)
@@ -474,7 +477,7 @@ class Logger():
 			ret += f"{key} : {self.data[key]}\n"
 		return ret
 	
-	def plot(self, data_to_plot=None, block=False, smooth=30):
+	def plot(self, data_to_plot=None, block=False, smooth=0):
 		if data_to_plot == None:
 			data_to_plot = self.data.keys()
 			
@@ -484,10 +487,11 @@ class Logger():
 		num_graphs = len(data_to_plot)
 		height_ratios = [1]*num_graphs
 		height_ratios[0] = 3			# make the main graph taller than the rest
-		height_ratios[1] = 3			# make the main graph taller than the rest
+		#height_ratios[1] = 3			# make the main graph taller than the rest
 		gs = gridspec.GridSpec(num_graphs, 1, height_ratios=height_ratios, hspace=0.8)
 		fontsize = 8
 		linewidth = 1
+		done_smooth = False
 
 		for subplot, data_names in enumerate(data_to_plot):
 			ax = fig.add_subplot(gs[subplot])
@@ -511,7 +515,8 @@ class Logger():
 					ax.plot(this_data, linewidth=linewidth)
 
 					# Draw a smoothed graph
-					if subplot == 0 and smooth > 0:
+					if not done_smooth and smooth > 0:
+						done_smooth = True
 						if len(this_data) >= smooth:
 							window = np.ones(int(smooth))/float(smooth)
 							smoothed = np.convolve(this_data, window, 'valid')
@@ -568,10 +573,13 @@ class AlgoBase:
 		self.save_every_frames = 5
 		self.steps_done = 0
 		self.device = get_device()
-		self.data_to_plot = ["episode_reward","last_step_reward","episode_durations","memory_size"]
+		self.data_to_plot = [["episode_reward","recent_test_av"],"last_step_reward","episode_durations","memory_size"]
 		self.episode_ended_handler = None	# use to change standard behaviour (eg- for a meta-algorithm)
 		self.epsilon = self.EPS_START
 		self.epsilon_decay = math.exp(-math.log(2.) / self.EPS_HALF_LIFE)
+		self.episodes_per_test = 50
+		self.num_test_episodes = 10
+		self.recent_test_av = -500	# TODO - get a better way of starting with a low number
 		
 	def get_save_name(self):
 		save_name = generic_get_save_name( self.name, self.env_name, self.settings )
@@ -595,9 +603,10 @@ class AlgoBase:
 		self.saver.load_data_into( "memory",			self.memory )
 		self.saver.load_data_into( "settings", 			self.settings )
 		self.saver.load_data_into( "logger", 			self.logger )
-		self.steps_done 	= self.logger.get_latest_value("steps_done")
-		self.epsilon 		= self.logger.get_latest_value("epsilon")
-		print(f"{self} loaded {self.saver.filename} with {self.logger.get_latest_value('episodes')} episodes")
+		self.steps_done 		= self.logger.get_latest_value("steps_done")
+		self.epsilon 			= self.logger.get_latest_value("epsilon")
+		self.recent_test_av 	= self.logger.get_latest_value("recent_test_av")
+		print(f"Loaded {self.saver.filename} episodes = {self.logger.get_latest_value('episodes')}, recent_test_av = {self.recent_test_av}")
 				
 	def load_if_save_exists(self):
 		if self.saver.save_exists():
@@ -617,8 +626,10 @@ class AlgoBase:
 				if i_episode % visualize_every == 0:
 					self.visualize(num_episodes = 1)
 
-	def episode_ended_outer(self, last_step_reward, steps, episode_reward):
-		print(f"episode_ended {self.logger.get_latest_value('episodes') + 1}: steps = {steps+1}, episode_reward = {episode_reward:0.1f}, last step reward = {last_step_reward:0.1f}") 
+	def episode_ended_outer(self, last_step_reward, steps, episode_reward, time_taken=0):
+		#time_message = f" ({100*time_taken/steps:0.1f} secs per 100 steps)" if time_taken>0 else ""
+		time_message = ""
+		print(f"episode_ended {self.logger.get_latest_value('episodes') + 1}: steps = {steps}, episode_reward = {episode_reward:0.1f}, last step reward = {last_step_reward:0.1f}"+time_message) 
 		if self.episode_ended_handler is not None:
 			return self.episode_ended_handler.episode_ended(last_step_reward, steps, episode_reward)
 		return self.episode_ended(last_step_reward, steps, episode_reward)
@@ -633,6 +644,10 @@ class AlgoBase:
 		self.logger.set_frame_value("episode_reward",				episode_reward)
 		self.logger.set_frame_value("last_step_reward",				last_step_reward)
 		self.logger.set_frame_value("epsilon",						self.epsilon)
+		if this_episode % self.episodes_per_test == 0:
+			results, self.recent_test_av = self.test_actor(num_test_episodes=self.num_test_episodes)
+		self.logger.set_frame_value("recent_test_av",				self.recent_test_av)
+		
 		self.logger.next_frame()
 		if self.save_every_frames > 0:
 			if self.logger.get_latest_value("episodes")%self.save_every_frames == 0:

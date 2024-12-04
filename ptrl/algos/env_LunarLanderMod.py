@@ -223,6 +223,7 @@ class LunarLanderMod(gym.Env, EzPickle):	#PNT
 		enable_wind: bool = False,
 		wind_power: float = 15.0,
 		turbulence_power: float = 1.5,
+		continuous_to_discrete = False,
 	):
 		EzPickle.__init__(
 			self,
@@ -232,6 +233,7 @@ class LunarLanderMod(gym.Env, EzPickle):	#PNT
 			enable_wind,
 			wind_power,
 			turbulence_power,
+			continuous_to_discrete,
 		)
 
 		assert (
@@ -266,6 +268,7 @@ class LunarLanderMod(gym.Env, EzPickle):	#PNT
 		self.prev_reward = None
 
 		self.continuous = continuous
+		self.continuous_to_discrete = continuous_to_discrete
 
 		low = np.array(
 			[
@@ -567,6 +570,15 @@ class LunarLanderMod(gym.Env, EzPickle):	#PNT
 
 		if self.continuous:
 			action = np.clip(action, -1, +1).astype(np.float64)
+			
+			if self.continuous_to_discrete:
+				# take continuous actions passed in and map them to the discrete actions that are usually available
+				if action[0] >= 0:
+					action[0] = 1.0		# main engine
+					action[1] = 0.0		# lateral boosters
+				else:
+					action[0] = 0.0		# main engine
+					action[1] = -1.0 if action[1] < -0.5 else 1.0 if action[1] > 0.5 else 0.0		# lateral boosters
 		else:
 			assert self.action_space.contains(
 				action

@@ -36,6 +36,10 @@ def create_env_fn_LunarLanderContinuousWithWind(render_mode=None):
 	env = env_LunarLanderMod.LunarLanderMod(render_mode=render_mode, continuous=True, gravity=-10.0, enable_wind=True, wind_power=15.0, turbulence_power=1.5)	
 	env.spec = EnvDummySpec("LunarLanderContinuousWithWind")
 	return env
+def create_env_fn_LunarLanderContinuousToDiscreteWithWind(render_mode=None):
+	env = env_LunarLanderMod.LunarLanderMod(render_mode=render_mode, continuous=True, gravity=-10.0, enable_wind=True, wind_power=15.0, turbulence_power=1.5, continuous_to_discrete=True)	
+	env.spec = EnvDummySpec("LunarLanderContinuousToDiscreteWithWind")
+	return env
 def create_env_fn_MountainCarContinuous(render_mode=None):
 	return gym.make("MountainCarContinuous-v0",render_mode=render_mode)	
 
