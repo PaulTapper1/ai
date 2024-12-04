@@ -58,8 +58,8 @@ def run_experiment(settings):
 			# temp_saver.load_data_into("actor", algo.actor.mlp, is_net=True)
 		
 		#algo.visualize(num_episodes=5)
-		#if algo.steps_done > 0:
-		#	algo.visualize(num_episodes=10)
+		if algo.steps_done > 0:
+			algo.visualize(num_episodes=10)
 		
 		algo.loop_episodes(num_episodes=num_episodes, visualize_every=0, show_graph=show_graphs)
 		results = algo.test_actor(num_test_episodes=num_test_episodes_per_experiment, seed_offset=int(1e6))

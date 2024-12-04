@@ -74,8 +74,6 @@ class Algo(core.AlgoBase):
 		super().__init__(name=algo_name, create_env_fn=create_env_fn, settings=settings)
 
 		# sac parameters
-		self.ac_kwargs=dict()
-		self.seed=0, 
 		self.replay_size=int(1e6)
 		self.gamma=0.99
 		self.polyak=0.995
@@ -87,8 +85,6 @@ class Algo(core.AlgoBase):
 		self.update_every=50
 		self.num_test_episodes=10
 		self.max_ep_len=1000 
-		self.logger_kwargs=dict()
-		self.save_freq=1
 		
 		self.actor = core.MLPActorCritic(self.create_env_fn, hidden_layer_sizes=self.settings["hidden_layer_sizes"], learning_rate=self.lr)
 		self.test_env = self.create_env_fn()
@@ -114,7 +110,7 @@ class Algo(core.AlgoBase):
 		self.pi_optimizer = Adam(self.actor.pi.parameters(), lr=self.lr)
 		self.q_optimizer = Adam(self.q_params, lr=self.lr)
 
-		self.data_to_plot = [["episode_reward","recent_test_av"],"last_step_reward","episode_durations","memory_size"]
+		self.data_to_plot = [["episode_reward","recent_test_av"],["loss_q","loss_pi"],"last_step_reward","episode_durations","memory_size"]
 		self.load_if_save_exists()
 
 	def add_data_to_save(self):
@@ -153,6 +149,7 @@ class Algo(core.AlgoBase):
 		loss_q1 = ((q1 - backup)**2).mean()
 		loss_q2 = ((q2 - backup)**2).mean()
 		loss_q = loss_q1 + loss_q2
+		self.logger.set_frame_value("loss_q", loss_q.item())
 
 		# Useful info for logging
 		q_info = dict(Q1Vals=q1.detach().numpy(),
@@ -170,6 +167,7 @@ class Algo(core.AlgoBase):
 
 		# Entropy-regularized policy loss
 		loss_pi = (self.alpha * logp_pi - q_pi).mean()
+		self.logger.set_frame_value("loss_pi", loss_pi.item())
 
 		# Useful info for logging
 		pi_info = dict(LogPi=logp_pi.detach().numpy())

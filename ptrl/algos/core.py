@@ -320,16 +320,6 @@ class MLPActorCritic(ActorCore, nn.Module, Saveable):
 	def select_action(self,observation):
 		return self.act(torch.as_tensor(observation, dtype=torch.float32), deterministic=True)
 
-	# def add_data_to_save(self, name, saver):
-	# 	saver.add_data_to_save( name+"_pi",			self.pi)#, 		is_net=True )
-	# 	saver.add_data_to_save( name+"_q1",			self.q1)#, 		is_net=True )
-	# 	saver.add_data_to_save( name+"_q2",			self.q2)#, 		is_net=True )
-	#
-	# def load_data_into( self, name, saver):
-	# 	saver.load_data_into( name+"_pi",			self.pi)#, 		is_net=True )
-	# 	saver.load_data_into( name+"_q1",			self.q1)#, 		is_net=True )
-	# 	saver.load_data_into( name+"_q2",			self.q2)#, 		is_net=True )
-
 	def to_saveable(self):
 		return { "pi" : self.pi.to_saveable(),
 				 "q1" : self.q1.to_saveable(),
@@ -441,13 +431,14 @@ class Logger():
 			if self.num_frames == 0 :
 				self.data[key] = []
 			else:
-				print_warning(f"Adding unrecognised key {key} at frame {self.num_frames} to Logger")
-				self.data[key] = [0]*self.num_frames
-		self.data[key].append(value)
+				self.data[key] = [value]*self.num_frames
+		if len(self.data[key]) == self.num_frames:
+			self.data[key].append(value)
+		else:
+			self.data[key][self.num_frames] = value
 	
 	def get_latest_value(self, key):
 		if not key in self.data :
-			#print_warning(f"Could not find key {key} in {self}")
 			return 0
 		data_list = self.data[key]
 		if len(data_list) > 0 :
@@ -459,7 +450,7 @@ class Logger():
 		self.num_frames += 1
 		for key in self.data.keys():
 			if len(self.data[key]) < self.num_frames:
-				print_warning(f"Missing {key} value for frame {self.num_frames-1}")
+				self.data[key].append(self.data[key][self.num_frames-2])
 				
 	def to_saveable(self):
 		return self.data
@@ -579,7 +570,6 @@ class AlgoBase:
 		self.epsilon_decay = math.exp(-math.log(2.) / self.EPS_HALF_LIFE)
 		self.episodes_per_test = 50
 		self.num_test_episodes = 10
-		self.recent_test_av = -500	# TODO - get a better way of starting with a low number
 		
 	def get_save_name(self):
 		save_name = generic_get_save_name( self.name, self.env_name, self.settings )
@@ -605,8 +595,7 @@ class AlgoBase:
 		self.saver.load_data_into( "logger", 			self.logger )
 		self.steps_done 		= self.logger.get_latest_value("steps_done")
 		self.epsilon 			= self.logger.get_latest_value("epsilon")
-		self.recent_test_av 	= self.logger.get_latest_value("recent_test_av")
-		print(f"Loaded {self.saver.filename} episodes = {self.logger.get_latest_value('episodes')}, recent_test_av = {self.recent_test_av}")
+		print(f"Loaded {self.saver.filename} episodes = {self.logger.get_latest_value('episodes')}")
 				
 	def load_if_save_exists(self):
 		if self.saver.save_exists():
@@ -645,8 +634,8 @@ class AlgoBase:
 		self.logger.set_frame_value("last_step_reward",				last_step_reward)
 		self.logger.set_frame_value("epsilon",						self.epsilon)
 		if this_episode % self.episodes_per_test == 0:
-			results, self.recent_test_av = self.test_actor(num_test_episodes=self.num_test_episodes)
-		self.logger.set_frame_value("recent_test_av",				self.recent_test_av)
+			results, recent_test_av = self.test_actor(num_test_episodes=self.num_test_episodes)
+			self.logger.set_frame_value("recent_test_av",				recent_test_av)
 		
 		self.logger.next_frame()
 		if self.save_every_frames > 0:
