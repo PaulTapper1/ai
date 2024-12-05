@@ -84,7 +84,7 @@ class Algo(core.AlgoBase):
 		self.update_after=1000
 		self.update_every=50
 		self.num_test_episodes=10
-		self.max_ep_len=1000 
+		self.max_ep_steps = 200
 		
 		self.actor = core.MLPActorCritic(self.create_env_fn, hidden_layer_sizes=self.settings["hidden_layer_sizes"], learning_rate=self.lr)
 		self.test_env = self.create_env_fn()
@@ -110,7 +110,7 @@ class Algo(core.AlgoBase):
 		self.pi_optimizer = Adam(self.actor.pi.parameters(), lr=self.lr)
 		self.q_optimizer = Adam(self.q_params, lr=self.lr)
 
-		self.data_to_plot = [["episode_reward","recent_test_av"],["loss_q","loss_pi"],"last_step_reward","episode_durations","memory_size"]
+		self.data_to_plot = [["episode_reward","recent_test_av"],"loss_q","loss_pi","last_step_reward","episode_durations","memory_size"]
 		self.load_if_save_exists()
 
 	def add_data_to_save(self):
@@ -226,11 +226,7 @@ class Algo(core.AlgoBase):
 			# Step the env
 			observation2, reward, terminated, truncated, _ = self.env.step(action)
 			episode_reward += reward
-
-			# Ignore the "done" signal if it comes from hitting the time
-			# horizon (that is, when it's an artificial terminal signal
-			# that isn't based on the agent's state)
-			done = False if steps==self.max_ep_len else terminated
+			done = truncated or terminated or (steps > self.max_ep_steps)
 
 			# Store experience to replay buffer
 			self.memory.store(observation, action, reward, observation2, done)
@@ -241,8 +237,8 @@ class Algo(core.AlgoBase):
 
 			# end of episode handling
 			self.steps_done += 1
-			if done or (steps == self.max_ep_len):
-				self.episode_ended_outer(last_step_reward=reward, steps=steps, episode_reward=episode_reward, time_taken=time.time() - start_time)
+			if done:
+				self.episode_ended_outer(last_step_reward=reward, steps=steps+1, episode_reward=episode_reward, time_taken=time.time() - start_time)
 				break
 
 			# Update handling

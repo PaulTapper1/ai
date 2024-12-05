@@ -733,13 +733,13 @@ class LunarLanderMod(gym.Env, EzPickle):	#PNT
 			terminated = True
 			reward = +100
 			
+		self.steps += 1	#PNT
 		truncated = False	#PNT
 		if not terminated and self.steps >= 1000:
 			truncated = True
 
 		if self.render_mode == "human":
 			self.render()
-		self.steps += 1	#PNT
 		# truncation=False as the time limit is handled by the `TimeLimit` wrapper added during `make`
 		return np.array(state, dtype=np.float32), reward, terminated, truncated, {}	#PNT
 

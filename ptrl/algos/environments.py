@@ -1,7 +1,9 @@
 import gymnasium as gym
 import algos.env_LunarLanderMod as env_LunarLanderMod
+import algos.env_MountainCarContinuousMod as env_MountainCarContinuousMod
 
 # to see a list of all available gyms use...
+#	import gymnasium as gym
 #	gym.pprint_registry()
 # for more info see https://gymnasium.farama.org/environments
 
@@ -42,5 +44,9 @@ def create_env_fn_LunarLanderContinuousToDiscreteWithWind(render_mode=None):
 	return env
 def create_env_fn_MountainCarContinuous(render_mode=None):
 	return gym.make("MountainCarContinuous-v0",render_mode=render_mode)	
+def create_env_fn_MountainCarContinuousMod(render_mode=None):
+	env = env_MountainCarContinuousMod.Continuous_MountainCarEnvMod(render_mode=render_mode)
+	env.spec = EnvDummySpec("MountainCarContinuousMod")
+	return env
 
 

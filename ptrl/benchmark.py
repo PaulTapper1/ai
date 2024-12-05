@@ -25,11 +25,12 @@ import algos.sac as algo_type
 #create_env_fn = env.create_env_fn_LunarLanderModWithWind
 #create_env_fn = env.create_env_fn_LunarLanderContinuous
 #create_env_fn = env.create_env_fn_LunarLanderContinuousWithWind
-create_env_fn = env.create_env_fn_LunarLanderContinuousToDiscreteWithWind
+#create_env_fn = env.create_env_fn_LunarLanderContinuousToDiscreteWithWind
 #create_env_fn = env.create_env_fn_MountainCarContinuous
+create_env_fn = env.create_env_fn_MountainCarContinuousMod
 
 env_name = env.get_env_name_from_create_fn(create_env_fn)
-num_episodes = 2000
+num_episodes = 5000
 num_test_episodes_per_experiment = 20
 
 def run_experiment(settings):
@@ -58,8 +59,8 @@ def run_experiment(settings):
 			# temp_saver.load_data_into("actor", algo.actor.mlp, is_net=True)
 		
 		#algo.visualize(num_episodes=5)
-		if algo.steps_done > 0:
-			algo.visualize(num_episodes=10)
+		#if algo.steps_done > 0:
+		#	algo.visualize(num_episodes=10)
 		
 		algo.loop_episodes(num_episodes=num_episodes, visualize_every=0, show_graph=show_graphs)
 		results = algo.test_actor(num_test_episodes=num_test_episodes_per_experiment, seed_offset=int(1e6))
