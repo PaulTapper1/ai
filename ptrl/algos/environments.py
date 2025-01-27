@@ -48,5 +48,7 @@ def create_env_fn_MountainCarContinuousMod(render_mode=None):
 	env = env_MountainCarContinuousMod.Continuous_MountainCarEnvMod(render_mode=render_mode)
 	env.spec = EnvDummySpec("MountainCarContinuousMod")
 	return env
+def create_env_fn_BipedalWalker(render_mode=None):
+	return gym.make("BipedalWalker-v3",render_mode=render_mode)
 
 

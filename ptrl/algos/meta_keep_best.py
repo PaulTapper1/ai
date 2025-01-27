@@ -37,11 +37,11 @@ class MetaAlgo(core.AlgoBase):
 
 	def add_data_to_save(self):
 		self.algo.add_data_to_save()
-		self.algo.saver.add_data_to_save( "best_actor",		self.best_actor.mlp, 	is_net=True )
-	
+		self.algo.saver.add_data_to_save( "best_actor",			self.best_actor)
+		
 	def load(self):
 		self.algo.load()
-		self.algo.saver.load_data_into( "best_actor",		self.best_actor.mlp, 	is_net=True )
+		self.algo.saver.load_data_into( "best_actor",		self.best_actor)
 		self.best_actor_score = self.algo.logger.get_latest_value("best_actor_score")
 		self.most_recent_actor_score = self.algo.logger.get_latest_value("most_recent_actor_score")
 		self.test_seed = self.algo.logger.get_latest_value("test_seed")
@@ -111,4 +111,4 @@ class MetaAlgo(core.AlgoBase):
 
 	def test_actor(self, **kwargs):
 		results, average = self.best_actor.test(create_env_fn=self.algo.create_env_fn, **kwargs)
-		return results
+		return results, average

@@ -2,6 +2,8 @@
 # https://spinningup.openai.com/en/latest/algorithms/sac.html
 # https://github.com/haarnoja/sac
 
+# could maybe think about implementing a discrete action space sac from https://github.com/toshikwa/sac-discrete.pytorch
+
 import pathlib
 algo_name = pathlib.Path(__file__).stem
 
@@ -48,6 +50,10 @@ class ReplayBuffer:
 
 	def __len__(self):
 		return self.size
+		
+	def reset(self):
+		print("Reseting memory")
+		self.ptr, self.size = 0, 0
 	
 	def to_saveable(self):
 		return [ self.obs_buf,
@@ -73,13 +79,26 @@ class Algo(core.AlgoBase):
 	def __init__(self, create_env_fn, settings=[]):
 		super().__init__(name=algo_name, create_env_fn=create_env_fn, settings=settings)
 
-		# sac parameters
+		# # sac parameters - Original
+		# self.replay_size=int(1e6)
+		# self.gamma=0.99
+		# self.polyak=0.995
+		# self.lr=1e-3
+		# self.alpha=0.2
+		# self.batch_size=100
+		# self.start_steps=10000
+		# self.update_after=1000
+		# self.update_every=50
+		# self.num_test_episodes=10
+		# self.max_ep_steps = 200
+		
+		# sac parameters - https://github.com/CoderAT13/BipedalWalkerHardcore-SAC/blob/main/data/BipedalWalkerTest.md
 		self.replay_size=int(1e6)
 		self.gamma=0.99
 		self.polyak=0.995
-		self.lr=1e-3
+		self.lr=3e-4
 		self.alpha=0.2
-		self.batch_size=100
+		self.batch_size=256
 		self.start_steps=10000
 		self.update_after=1000
 		self.update_every=50
@@ -123,6 +142,7 @@ class Algo(core.AlgoBase):
 		self.saver.load_data_into( "actor",				self.actor)
 		self.saver.load_data_into( "target_actor",		self.target_actor)
 		#self.actor.test(create_env_fn=self.create_env_fn)
+		#self.memory.reset()	# PNT TEMP - wipe memory of environment with reward shaping
 
 	def episode_ended(self, last_step_reward, steps, episode_reward):
 		super().episode_ended(last_step_reward, steps, episode_reward)		# do all the standard stuff at the end of an episode
@@ -224,7 +244,7 @@ class Algo(core.AlgoBase):
 				action = self.env.action_space.sample()
 
 			# Step the env
-			observation2, reward, terminated, truncated, _ = self.env.step(action)
+			observation2, reward, terminated, truncated, _ = self.do_step(action)
 			episode_reward += reward
 			done = truncated or terminated or (steps > self.max_ep_steps)
 

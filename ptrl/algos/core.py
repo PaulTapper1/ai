@@ -566,6 +566,7 @@ class AlgoBase:
 		self.device = get_device()
 		self.data_to_plot = [["episode_reward","recent_test_av"],"last_step_reward","episode_durations","memory_size"]
 		self.episode_ended_handler = None	# use to change standard behaviour (eg- for a meta-algorithm)
+		self.post_do_step_mod = []	# use to change standard behaviour (eg- for algorithm modifier)
 		self.epsilon = self.EPS_START
 		self.epsilon_decay = math.exp(-math.log(2.) / self.EPS_HALF_LIFE)
 		self.episodes_per_test = 50
@@ -614,6 +615,12 @@ class AlgoBase:
 			if visualize_every != 0:
 				if i_episode % visualize_every == 0:
 					self.visualize(num_episodes = 1)
+	
+	def do_step(self, action):
+		observation2, reward, terminated, truncated, _ = self.env.step(action)
+		for mod in self.post_do_step_mod:
+			observation2, reward, terminated, truncated, _ = mod.post_do_step(observation2=observation2, reward=reward, terminated=terminated, truncated=truncated, _=_)
+		return observation2, reward, terminated, truncated, _
 
 	def episode_ended_outer(self, last_step_reward, steps, episode_reward, time_taken=0):
 		#time_message = f" ({100*time_taken/steps:0.1f} secs per 100 steps)" if time_taken>0 else ""

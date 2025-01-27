@@ -141,6 +141,8 @@ class Continuous_MountainCarEnvMod(gym.Env):	#PNT
 		self.clock = None
 		self.isopen = True
 		self.steps = 0	#PNT
+		self.explore_reward_step = 0.05 #PNT
+		self.explore_reward_bins = [False]*int((self.max_position-self.min_position)/self.explore_reward_step+1) #PNT
 
 		self.action_space = spaces.Box(
 			low=self.min_action, high=self.max_action, shape=(1,), dtype=np.float32
@@ -179,10 +181,22 @@ class Continuous_MountainCarEnvMod(gym.Env):	#PNT
 
 		# PNT ##########################################################
 		# extra reward shaping to make things easier to learn
-		distance_from_goal = self.goal_position-position
-		near_goal_reward = 2.0 - distance_from_goal
-		if near_goal_reward > 0:
-			reward += math.pow(near_goal_reward/2.0, 2)*5
+		# distance_from_goal = self.goal_position-position
+		# near_goal_reward = 2.0 - distance_from_goal
+		# if near_goal_reward > 0:
+			# reward += math.pow(near_goal_reward/2.0, 2)*5
+
+		# abs_pos = math.fabs(position+0.5)	# center of dip is -0.5
+		# reward_shaping_step = 0.1
+		# if abs_pos >= self.furthest_distance_this_episode + reward_shaping_step:
+			# new_furthest_distance_this_episode = int(abs_pos/reward_shaping_step)*reward_shaping_step
+			# self.furthest_distance_this_episode = new_furthest_distance_this_episode
+			# reward += 10  # * (2.0 if position > 0 else 1.0)
+
+		# current_explore_reward_bin = int((position-self.min_position)/self.explore_reward_step)
+		# if not self.explore_reward_bins[current_explore_reward_bin]:
+		# 	self.explore_reward_bins[current_explore_reward_bin] = True
+		# 	reward += 10
 		# PNT ##########################################################
 
 		self.steps += 1	#PNT
@@ -203,8 +217,10 @@ class Continuous_MountainCarEnvMod(gym.Env):	#PNT
 		# state/observations.
 		low, high = utils.maybe_parse_reset_bounds(options, -0.6, -0.4)
 		self.state = np.array([self.np_random.uniform(low=low, high=high), 0])
-		self.steps = 0	#PNT
 
+		self.steps = 0	#PNT
+		self.explore_reward_bins = [False]*len(self.explore_reward_bins)	#PNT
+		
 		if self.render_mode == "human":
 			self.render()
 		return np.array(self.state, dtype=np.float32), {}
@@ -242,6 +258,7 @@ class Continuous_MountainCarEnvMod(gym.Env):	#PNT
 		if self.clock is None:
 			self.clock = pygame.time.Clock()
 
+
 		world_width = self.max_position - self.min_position
 		scale = self.screen_width / world_width
 		carwidth = 40
@@ -251,6 +268,7 @@ class Continuous_MountainCarEnvMod(gym.Env):	#PNT
 		self.surf.fill((255, 255, 255))
 
 		pos = self.state[0]
+		pygame.display.set_caption(f"MountainCarContinuousMod: steps = {self.steps}, pos = {pos:0.3f}")	# PNT
 
 		xs = np.linspace(self.min_position, self.max_position, 100)
 		ys = self._height(xs)
@@ -303,6 +321,8 @@ class Continuous_MountainCarEnvMod(gym.Env):	#PNT
 			[(flagx, flagy2), (flagx, flagy2 - 10), (flagx + 25, flagy2 - 5)],
 			(204, 204, 0),
 		)
+
+
 
 		self.surf = pygame.transform.flip(self.surf, False, True)
 		self.screen.blit(self.surf, (0, 0))

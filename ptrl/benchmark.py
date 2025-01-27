@@ -14,7 +14,12 @@ import algos.sac as algo_type
 
 ############################################
 # select any meta algorithm (or comment them all out to not use any)
-#import algos.meta_keep_best as meta_algo_type
+import algos.meta_keep_best as meta_algo_type
+#import algos.meta_explore_rewards as meta_algo_type
+
+############################################
+# select any algorithm modifiers
+#import algos.mod_explore_rewards
 
 ############################################
 # select environment to train and test on
@@ -27,7 +32,8 @@ import algos.sac as algo_type
 #create_env_fn = env.create_env_fn_LunarLanderContinuousWithWind
 #create_env_fn = env.create_env_fn_LunarLanderContinuousToDiscreteWithWind
 #create_env_fn = env.create_env_fn_MountainCarContinuous
-create_env_fn = env.create_env_fn_MountainCarContinuousMod
+#create_env_fn = env.create_env_fn_MountainCarContinuousMod
+create_env_fn = env.create_env_fn_BipedalWalker
 
 env_name = env.get_env_name_from_create_fn(create_env_fn)
 num_episodes = 5000
@@ -52,15 +58,11 @@ def run_experiment(settings):
 		algo = algo_type.Algo( create_env_fn, settings=settings)
 		if using_meta_algo:
 			algo = meta_algo_type.MetaAlgo( create_env_fn, settings=settings, algo=algo)
-
-		# if algo.steps_done == 0:
-			# print("preloading with succesful actor from LunarLander no wind")
-			# temp_saver = core.Saver("LunarLander_no_wind_128_64_32")
-			# temp_saver.load_data_into("actor", algo.actor.mlp, is_net=True)
+		#mod_explore_rewards = algos.mod_explore_rewards.Modifier(algo)
 		
 		#algo.visualize(num_episodes=5)
-		#if algo.steps_done > 0:
-		#	algo.visualize(num_episodes=10)
+		if algo.steps_done > 0:
+			algo.visualize(num_episodes=5)
 		
 		algo.loop_episodes(num_episodes=num_episodes, visualize_every=0, show_graph=show_graphs)
 		results = algo.test_actor(num_test_episodes=num_test_episodes_per_experiment, seed_offset=int(1e6))
@@ -72,26 +74,26 @@ def run_experiment(settings):
 	print(f"{experiment_savename} finished")
 	experiment.plot(block=True, save_image=True)
 
-def visualizer_actor_from_run(savename):
-	algo = algo_type.Algo( create_env_fn, settings={ "hidden_layer_sizes" : [256,256] })
+def visualizer_actor_from_run(savename, settings):
+	algo = algo_type.Algo( create_env_fn, settings=settings)
 	algo.saver.filename = savename
 	algo.load()
 	algo.visualize(num_episodes=10)
-	
 	# #actor = core.MLPActorDiscreteActions(create_env_fn, hidden_layer_sizes=[256,128,64,32])
 	# actor = core.MLPActorCritic(create_env_fn, hidden_layer_sizes=[256,256])
 	# saver = core.Saver(savename)
 	# actor.load_data_into( "actor", saver)
 	# actor.visualize(create_env_fn=create_env_fn, num_episodes=10) #, seed_offset=1e6)
 
+settings = { "hidden_layer_sizes" : [256,256] }
+# settings = { "hidden_layer_sizes" : [128,64,32] }
+# settings = { "hidden_layer_sizes" : [64,32,16] }
+# settings = { "hidden_layer_sizes" : [32,16,8] }
+# settings = { "hidden_layer_sizes" : [16,8,4] }
+# settings = { "hidden_layer_sizes" : [128,64] }
+# settings = { "hidden_layer_sizes" : [256,256,256] }
+# settings = { "hidden_layer_sizes" : [256,128,64,32] }
 
-# run_experiment( { "hidden_layer_sizes" : [256,256] } )
-# run_experiment( { "hidden_layer_sizes" : [128,64,32] } )
-# run_experiment( { "hidden_layer_sizes" : [64,32,16] } )
-# run_experiment( { "hidden_layer_sizes" : [32,16,8] } )
-# run_experiment( { "hidden_layer_sizes" : [16,8,4] } )
-run_experiment( { "hidden_layer_sizes" : [128,64] } )
-# run_experiment( { "hidden_layer_sizes" : [256,256,256] } )
-#run_experiment( { "hidden_layer_sizes" : [256,128,64,32] } )
+#run_experiment(settings=settings)
 		
-#visualizer_actor_from_run("sac_LunarLanderContinuousWithWind_256_256_ex3")
+visualizer_actor_from_run(savename="meta_keep_best_sac_BipedalWalker_256_256_ex3", settings=settings)
