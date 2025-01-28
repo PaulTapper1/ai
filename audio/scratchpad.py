@@ -3,7 +3,8 @@
 
 #pip install datasets
 #pip install soundfile
-#pip install playsound==1.2.2	# note - older version important!
+#pip install pydub playsound==1.3.0	# note - older version important!
+#pip install datasets transformers sounddevice soundfile  # Install necessary libraries
 
 # from datasets import load_dataset
 # ds = load_dataset("mozilla-foundation/common_voice_11_0", "ab", trust_remote_code=True)
@@ -18,35 +19,51 @@ from datasets import load_dataset
 import matplotlib.pyplot as plt
 import numpy as np
 import math
-from playsound import playsound
+# from playsound import playsound
+# from pydub import AudioSegment
+# from io import BytesIO
 import random
+import sounddevice as sd
+#import soundfile as sf
+
+
+#-----------------------------------------------------------------------------
+# Global settings
+n_fft 			= 4096		# size of FFTs
+hop_length 		= 512		# samples between each FFT slice
+min_freq_hz		= 200		# minimum frequency in spectrogram	# https://www.dpamicrophones.com/mic-university/background-knowledge/facts-about-speech-intelligibility/
+max_freq_hz		= 8000		# maximum frequency in spectrogram
+num_freq_bins 	= 200		# num frequncy bins (distributed logarithmically in frequency range)
+
 
 #-----------------------------------------------------------------------------
 # Load data
-def load_common_voice_11(language):
+def load_from_huggingface(resource, language):
 	# see https://huggingface.co/datasets/mozilla-foundation/common_voice_11_0
-	print(f"Loading common_voice_11 '{language}'")
-	dataset = load_dataset("mozilla-foundation/common_voice_11_0", language, split="train", trust_remote_code=True)
-	#print(dataset)
+	print(f"{resource} '{language}'")
+	dataset = load_dataset(resource, language, split="train", trust_remote_code=True)
+	print(dataset)
 	#print(dataset[0])
 	#print(dataset[0]["audio"])
 	
 	return dataset
 
-dataset = load_common_voice_11("en"		)
-# dataset = load_common_voice_11("ar"		)
-# dataset = load_common_voice_11("hi"		)
-# dataset = load_common_voice_11("zh-CN"	)
-# dataset = load_common_voice_11("fr"		)
-# dataset = load_common_voice_11("de"		)
-# dataset = load_common_voice_11("ja"		)
-# dataset = load_common_voice_11("ru"		)
-# dataset = load_common_voice_11("es"		)
+# dataset = load_from_huggingface("mozilla-foundation/common_voice_11_0", "en"		)
+# dataset = load_from_huggingface("mozilla-foundation/common_voice_11_0", "ar"		)
+# dataset = load_from_huggingface("mozilla-foundation/common_voice_11_0", "hi"		)
+# dataset = load_from_huggingface("mozilla-foundation/common_voice_11_0", "zh-CN"	)
+# dataset = load_from_huggingface("mozilla-foundation/common_voice_11_0", "fr"		)
+# dataset = load_from_huggingface("mozilla-foundation/common_voice_11_0", "de"		)
+# dataset = load_from_huggingface("mozilla-foundation/common_voice_11_0", "ja"		)
+# dataset = load_from_huggingface("mozilla-foundation/common_voice_11_0", "ru"		)
+# dataset = load_from_huggingface("mozilla-foundation/common_voice_11_0", "es"		)
 
-def make_freq_logscale(num_bins, min_freq = 200, max_freq = 8000):	# https://www.dpamicrophones.com/mic-university/background-knowledge/facts-about-speech-intelligibility/
-	scale = np.linspace(math.log(min_freq), math.log(max_freq), num_bins, False)
+dataset = load_from_huggingface("agkphysics/AudioSet", ""		)
+
+
+def make_freq_logscale():	
+	scale = np.linspace(math.log(min_freq_hz), math.log(max_freq_hz), num_freq_bins, False)
 	scale = np.exp(scale)
-	#print(scale)
 	return scale
 
 def convert_spectrogram_to_freq_scale(spectrogram, sample_rate, new_freq_scale):
@@ -77,42 +94,60 @@ def show_spectrogram_scipy(audio_data, sample_rate, block=True):
 	from scipy import signal
 
 	# setup
-	n_fft = 4096		# size of FFTs
-	hop_length = 512	# samples between each FFT slice
 
 	# Calculate the Short-Time Fourier Transform (STFT)
 	stft = librosa.stft(audio_data, n_fft=n_fft, hop_length=hop_length)	# https://librosa.org/doc/main/generated/librosa.stft.html
 	spectrogram = np.abs(stft)	# magnitude spectrogram
 
 	# convert into spectrogram with log scale of frequencies
-	num_freq_bins = 200
-	freq_logscale = make_freq_logscale(num_freq_bins)
+	freq_logscale = make_freq_logscale()
 	spectrogram = convert_spectrogram_to_freq_scale(spectrogram, sample_rate, freq_logscale)
 	
 	# convert spectrogram to have dB values
 	spectrogram = np.fmax(spectrogram,1e-8)
 	spectrogram_dbs = 20 * np.log10(spectrogram)	# convert to log (dBs)
+	max_dbs = np.max(spectrogram_dbs)
+	spectrogram_dbs -= max_dbs
 	spectrogram_dbs = np.fmax(spectrogram_dbs, -60)  # limit db range
+
+	# trim lead-in and lead-out
+	freqbins, timebins = np.shape(spectrogram_dbs)
+	min_level_for_timeslice = -40
+	time_start = 0
+	while np.max(spectrogram_dbs[:,time_start]) < min_level_for_timeslice:
+		time_start += 1
+	time_end = timebins-1
+	while np.max(spectrogram_dbs[:,time_end]) < min_level_for_timeslice:
+		time_end -= 1
+	spectrogram_dbs = spectrogram_dbs[:,time_start:time_end]
+	timebins = time_end - time_start + 1
 
 	plt.clf()
 	plt.figure(num=1, figsize=(8, 4))
 	plt.pcolormesh(spectrogram_dbs, cmap="viridis")
-	freqbins, timebins = np.shape(stft)
 	clip_length = timebins * hop_length / sample_rate
-	plt.title(f"Length = {clip_length:.3f} secs")
+	plt.title(f"Length = {clip_length:.3f} secs, trimmed, {min_freq_hz}Hz - {max_freq_hz}Hz")
 	plt.colorbar(label="Decibels")
 	#plt.ylabel('Frequency [Hz]')
 	#plt.xlabel('Time [sec]')
-	plt.pause(0.1)  # pause a bit so that plots are updated
+	plt.pause(0.2)  # pause a bit so that plots are updated
 	plt.show(block=block)
+
+def play_audio_from_dataset_item(dataset_item):
+	audio_clip = dataset[idx]["audio"]
+	audio_data = audio_clip["array"]
+	sample_rate = audio_clip["sampling_rate"]
+	sd.play(audio_data, sample_rate)
+	sd.wait()  # Wait for playback to finish
 
 def visualize_data_item(dataset, idx):
 	audio_data 	= dataset[idx]["audio"]["array"]
 	sample_rate = dataset[idx]["audio"]["sampling_rate"]
-	path 		= dataset[idx]["audio"]["path"]
-	print(F"index={idx}, path='{path}'")
+	print(f"index={idx}")
+	print(f"human_labels={dataset[idx]['human_labels']}")
 	show_spectrogram_scipy(audio_data, sample_rate, block=False)
-	playsound(path)
+	play_audio_from_dataset_item(dataset[idx])
+
 
 # Get the audio data from the first example
 for i in range(0, 10):
