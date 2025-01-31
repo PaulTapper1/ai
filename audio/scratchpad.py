@@ -35,6 +35,8 @@ min_freq_hz		= 200		# minimum frequency in spectrogram	# https://www.dpamicropho
 max_freq_hz		= 8000		# maximum frequency in spectrogram
 num_freq_bins 	= 200		# num frequncy bins (distributed logarithmically in frequency range)
 
+export_count		= [ 0, 0 ]	# non dialog, dialog
+sub_folder_name		= [ "non_dialog", "dialog" ]
 
 #-----------------------------------------------------------------------------
 # Load data
@@ -42,7 +44,7 @@ def load_from_huggingface(resource, language):
 	# see https://huggingface.co/datasets/mozilla-foundation/common_voice_11_0
 	print(f"{resource} '{language}'")
 	dataset = load_dataset(resource, language, split="train", trust_remote_code=True)
-	print(f"num_rows={len(dataset)}")
+	#print(f"num_rows={len(dataset)}")
 	#print(dataset)
 	#print(dataset[0])
 	#print(dataset[0]["audio"])
@@ -72,7 +74,10 @@ def convert_spectrogram_to_freq_scale(spectrogram, sample_rate, new_freq_scale):
 
 	return new_spectrogram
 
-def get_spectrogram(audio_data, sample_rate):
+def get_spectrogram(dataset_item):
+	audio_clip = dataset_item["audio"]
+	audio_data = audio_clip["array"]
+	sample_rate = audio_clip["sampling_rate"]
 	sr = sample_rate
 
 	# Calculate the Short-Time Fourier Transform (STFT)
@@ -106,13 +111,13 @@ def get_spectrogram(audio_data, sample_rate):
 	
 	return spectrogram_dbs
 
-def show_spectrogram(spectrogram_dbs, sample_rate, block=True):
+def show_spectrogram(spectrogram_dbs, sample_rate=48000, block=False):
 	freqbins, timebins = np.shape(spectrogram_dbs)
 	plt.clf()
 	plt.figure(num=1, figsize=(8, 4))
 	plt.pcolormesh(spectrogram_dbs, cmap="viridis")
-	clip_length = timebins * hop_length / sample_rate
-	plt.title(f"Length = {clip_length:.3f} secs, trimmed, {min_freq_hz}Hz - {max_freq_hz}Hz")
+	#clip_length = timebins * hop_length / sample_rate
+	#plt.title(f"Length = {clip_length:.3f} secs, trimmed, {min_freq_hz}Hz - {max_freq_hz}Hz")
 	plt.colorbar(label="Decibels")
 	plt.pause(0.2)  # pause a bit so that plots are updated
 	plt.show(block=block)
@@ -125,54 +130,67 @@ def play_audio_from_dataset_item(dataset_item):
 	sd.wait()  # Wait for playback to finish
 
 def visualize_data_item(dataset_item, play_audio=True):
-	sample_rate = dataset_item["audio"]["sampling_rate"]
-	#print(f"sample_rate={sample_rate}")
-	if "human_labels" in dataset_item:
-		print(f"human_labels={dataset_item['human_labels']}")
-	audio_data 	= dataset_item["audio"]["array"]
-	spectrogram_dbs = get_spectrogram(audio_data, sample_rate)
-	show_spectrogram(spectrogram_dbs, sample_rate, block=False)
+	spectrogram_dbs = get_spectrogram(dataset_item)
+	show_spectrogram(spectrogram_dbs)
 	if play_audio:
+		if "human_labels" in dataset_item:
+			print(f"human_labels={dataset_item['human_labels']}")
 		play_audio_from_dataset_item(dataset_item)
 
 def visualize_some_data_items(dataset, num_items=10):
 	id_base = random.randint(0, len(dataset)-1-num_items)
 	for i in range(0, num_items):
-		visualize_data_item(dataset, id_base+i)
+		visualize_data_item(dataset[id_base+i])
 	plt.show(block=True)
 
-def export_spectrogram_from_dataset_item(dataset_item, is_dialog):
+def save_spectrogram(spectrogram_dbs, is_dialog, label):
+	is_dialog_index = 1 if is_dialog else 0
+	folder = PTAU_HOME+"\\"+sub_folder_name[is_dialog_index]+"\\"
+	os.makedirs(folder, exist_ok=True)
+	file_num = str(export_count[is_dialog_index]).zfill(7)
+	filename = f"spec_{file_num}"
+	with open(folder+'index.txt', 'a+') as file:
+		file.write(label+filename+"\n")
+	np.savez_compressed(f"{folder}{filename}.npz", data=spectrogram_dbs)
+	export_count[is_dialog_index] += 1
+	# # To load the array later:
+	# loaded_data = np.load('my_compressed_array.npz')
+	# loaded_array = loaded_data['data']
+
+def export_spectrogram_from_dataset_item(dataset_item, is_dialog, label):
 	if not is_dialog and "human_labels" in dataset_item:
 		discard_labels = ["Speech", "Singing", "Chant"]
 		for discard_label in discard_labels:
 			if discard_label in dataset_item['human_labels']:
 				# this item was labelled as not dialog, but, actually probably is, so discard item
 				return
-	#print(f"is_dialog = {is_dialog}")
-	visualize_data_item(dataset_item, play_audio=False)
-	#PTAU_HOME
+	spectrogram_dbs = get_spectrogram(dataset_item)
+	#show_spectrogram(spectrogram_dbs)
+	save_spectrogram(spectrogram_dbs, is_dialog, label)
 
-def export_spectrograms_from_dataset(dataset, is_dialog):
+def export_spectrograms_from_dataset(dataset, is_dialog, label):
 	max_item = len(dataset)-1
 	for i in range(0, max_item):
-		print(f"item {i}\r")
-		export_spectrogram_from_dataset_item(dataset[i], is_dialog)
+		print(f"Progress: {i} / {max_item} ({i/max_item*100:.3f}%) [Total exported = {export_count[0]} non dialog, {export_count[1]} dialog]\r", end="")
+		export_spectrogram_from_dataset_item(dataset[i], is_dialog, label+str(i)+", ")
 	print("\n")
 	
-def process_dataset(dataset, is_dialog):
-	export_spectrograms_from_dataset(dataset, is_dialog)
+def process_dataset(resource, language, is_dialog):
+	dataset = load_from_huggingface(resource, language)
+	label = f"{resource}, {language}, "
+	export_spectrograms_from_dataset(dataset, is_dialog, label)
 	#visualize_some_data_items(dataset)
 
-# process_dataset( load_from_huggingface("mozilla-foundation/common_voice_11_0", "en"		), True )
-process_dataset( load_from_huggingface("mozilla-foundation/common_voice_11_0", "ar"		), True )
-# process_dataset( load_from_huggingface("mozilla-foundation/common_voice_11_0", "hi"		), True )
-# process_dataset( load_from_huggingface("mozilla-foundation/common_voice_11_0", "zh-CN"	), True )
-# process_dataset( load_from_huggingface("mozilla-foundation/common_voice_11_0", "fr"		), True )
-# process_dataset( load_from_huggingface("mozilla-foundation/common_voice_11_0", "de"		), True )
-# process_dataset( load_from_huggingface("mozilla-foundation/common_voice_11_0", "ja"		), True )
-# process_dataset( load_from_huggingface("mozilla-foundation/common_voice_11_0", "ru"		), True )
-# process_dataset( load_from_huggingface("mozilla-foundation/common_voice_11_0", "es"		), True )
+process_dataset( "mozilla-foundation/common_voice_11_0", "ja"		, True )
+process_dataset( "agkphysics/AudioSet", ""							, False )
+process_dataset( "mozilla-foundation/common_voice_11_0", "en"		, True )
+process_dataset( "mozilla-foundation/common_voice_11_0", "ar"		, True )
+process_dataset( "mozilla-foundation/common_voice_11_0", "hi"		, True )
+process_dataset( "mozilla-foundation/common_voice_11_0", "zh-CN"	, True )
+process_dataset( "mozilla-foundation/common_voice_11_0", "fr"		, True )
+process_dataset( "mozilla-foundation/common_voice_11_0", "de"		, True )
+process_dataset( "mozilla-foundation/common_voice_11_0", "ru"		, True )
+process_dataset( "mozilla-foundation/common_voice_11_0", "es"		, True )
 
-# process_dataset( load_from_huggingface("agkphysics/AudioSet", ""						), False )	
 
 
