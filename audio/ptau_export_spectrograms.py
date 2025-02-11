@@ -26,15 +26,16 @@ import sounddevice as sd
 import librosa
 import librosa.display
 from scipy import signal
+import ptau_utils
 
 
 #-----------------------------------------------------------------------------
 # Global settings
-n_fft 			= 4096		# size of FFTs
-hop_length 		= 512		# samples between each FFT slice
-min_freq_hz		= 200		# minimum frequency in spectrogram	# https://www.dpamicrophones.com/mic-university/background-knowledge/facts-about-speech-intelligibility/
-max_freq_hz		= 8000		# maximum frequency in spectrogram
-num_freq_bins 	= 200		# num frequncy bins (distributed logarithmically in frequency range)
+n_fft 			= ptau_utils.n_fft				# size of FFTs
+hop_length 		= ptau_utils.hop_length			# samples between each FFT slice
+min_freq_hz		= ptau_utils.min_freq_hz		# minimum frequency in spectrogram	# https://www.dpamicrophones.com/mic-university/background-knowledge/facts-about-speech-intelligibility/
+max_freq_hz		= ptau_utils.max_freq_hz		# maximum frequency in spectrogram
+num_freq_bins 	= ptau_utils.num_freq_bins		# num frequncy bins (distributed logarithmically in frequency range)
 max_per_dataset	= 30000
 
 export_count		= [ 11364, 210822 ]	# non dialog, dialog
@@ -113,13 +114,13 @@ def get_spectrogram(dataset_item):
 	
 	return spectrogram_dbs
 
-def show_spectrogram(spectrogram_dbs, sample_rate=48000, block=False):
+def show_spectrogram(spectrogram_dbs, sample_rate=48000, block=False, title=""):
 	freqbins, timebins = np.shape(spectrogram_dbs)
 	plt.clf()
 	plt.figure(num=1, figsize=(8, 4))
 	plt.pcolormesh(spectrogram_dbs, cmap="viridis")
 	#clip_length = timebins * hop_length / sample_rate
-	#plt.title(f"Length = {clip_length:.3f} secs, trimmed, {min_freq_hz}Hz - {max_freq_hz}Hz")
+	plt.title(title)
 	plt.colorbar(label="Decibels")
 	plt.pause(0.2)  # pause a bit so that plots are updated
 	plt.show(block=block)

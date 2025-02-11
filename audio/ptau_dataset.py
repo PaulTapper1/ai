@@ -58,18 +58,26 @@ class SpectrogramDataset(Dataset):
 	def __getitem__(self, idx):
 		this_category = idx % 2
 		assert this_category in [0,1]
-		idx = random.randint(0, self.get_num_items(this_category))	# just discard idx passed in and select a random one of the correct category
-		idx = self.map_index(idx)
-		with open(self.category[this_category]["index_file"], 'r') as fp:
-			index_lines = fp.readlines()
-			index_line = index_lines[idx]
-			index = index_line.split(", ")
-			filename = index[3].strip()
-			path = os.path.join(self.category[this_category]["dir"], filename+".npz")
-			loaded_data = np.load(path)
-			loaded_array = loaded_data['data']
-			#ptau_export_spectrograms.show_spectrogram(loaded_array)	# display the spectrogram graphically
-		return loaded_array
+		have_found_valid_x = False
+		spectrogram_db = False
+		while not have_found_valid_x:
+			idx = random.randint(0, self.get_num_items(this_category))	# just discard idx passed in and select a random one of the correct category
+			idx = self.map_index(idx)
+			with open(self.category[this_category]["index_file"], 'r') as fp:
+				index_lines = fp.readlines()
+				index_line = index_lines[idx]
+				index = index_line.split(", ")
+				filename = index[3].strip()
+				path = os.path.join(self.category[this_category]["dir"], filename+".npz")
+				loaded_data = np.load(path)
+				spectrogram_db = loaded_data['data']
+				freqbins, timebins = np.shape(spectrogram_db)
+				time_slack = timebins-ptau_utils.timeslices_wanted
+				if time_slack>=0:
+					time_offset = random.randint(0,time_slack)
+					spectrogram_db = spectrogram_db[:,time_offset:time_offset+ptau_utils.timeslices_wanted]
+					have_found_valid_x = True
+		return {'x':spectrogram_db, 'y':this_category}
 
 #####################################################################################
 if __name__ == '__main__':
@@ -77,5 +85,12 @@ if __name__ == '__main__':
 	print(f"Testing {pathlib.Path(__file__)}")
 	dataset = SpectrogramDataset("D:/wkspaces/ai_data/ptau", 0)
 	print(f"Num items = {len(dataset)}")
-	sample0 = dataset[0]
-	sample1 = dataset[1]
+	
+	for i in range(0, 20):
+		idx = random.randint(0,len(dataset)-1)
+		sample 			= dataset[idx]
+		spectrogram_db 	= sample['x']
+		category 		= sample['y']
+		ptau_export_spectrograms.show_spectrogram(spectrogram_db, title=f"Index {idx}. Category = {category}")	# display the spectrogram graphically
+		ptau_utils.wait_for_any_keypress()
+		

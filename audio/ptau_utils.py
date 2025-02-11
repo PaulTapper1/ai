@@ -1,12 +1,28 @@
+#####################################################################################
+# Global settings
+
+n_fft 				= 4096		# size of FFTs
+hop_length 			= 512		# samples between each FFT slice
+min_freq_hz			= 200		# minimum frequency in spectrogram	# https://www.dpamicrophones.com/mic-university/background-knowledge/facts-about-speech-intelligibility/
+max_freq_hz			= 8000		# maximum frequency in spectrogram
+num_freq_bins 		= 200		# num frequncy bins (distributed logarithmically in frequency range)
+timeslices_wanted	= 30		# num of timeslices (hops) that are fed into the deep learning network
+
+def get_algorithm_lead_time_ms(sample_rate = 48000):
+	return ((n_fft + (timeslices_wanted-1)*hop_length ) / 48000) ** 1000
+
 
 #####################################################################################
-# Console output
+# Console input / output
+import msvcrt
 def print_warning(message):
 	print('\033[93mWarning: '+message+'\033[0m')	# see https://stackoverflow.com/questions/287871/how-do-i-print-colored-text-to-the-terminal
 def print_error(message):
 	print('\033[91mError: '+message+'\033[0m')	# see https://stackoverflow.com/questions/287871/how-do-i-print-colored-text-to-the-terminal
 	exit()
-
+def wait_for_any_keypress():
+	msvcrt.getch()
+	
 #####################################################################################
 # Saveable
 class Saveable():
