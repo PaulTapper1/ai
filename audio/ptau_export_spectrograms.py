@@ -1,10 +1,11 @@
 # see https://huggingface.co/blog/audio-datasets
 # https://github.com/huggingface/transformers/tree/main/examples/pytorch/speech-recognition
 
-#pip install datasets
-#pip install soundfile
-#pip install pydub playsound==1.3.0	# note - older version important!
-#pip install datasets transformers sounddevice soundfile  # Install necessary libraries
+#pip3 install datasets
+#pip3 install soundfile
+#pip3 install librosa
+#pip3 install pydub playsound==1.3.0	# note - older version important!
+#pip3 install datasets transformers sounddevice soundfile  # Install necessary libraries
 
 # from datasets import load_dataset
 # ds = load_dataset("mozilla-foundation/common_voice_11_0", "ab", trust_remote_code=True)
@@ -12,7 +13,7 @@
 
 import os
 HF_HOME = os.environ['HF_HOME']
-print(f"HF_HOME = '{HF_HOME}'")
+#print(f"HF_HOME = '{HF_HOME}'")
 assert HF_HOME == "D:\\wkspaces\\ai_data\\huggingface", "You should set your HF_HOME directory in Windows environment variables before importing datasets"
 PTAU_HOME = "D:\\wkspaces\\ai_data\\ptau"
 import datasets
@@ -36,7 +37,7 @@ max_freq_hz		= 8000		# maximum frequency in spectrogram
 num_freq_bins 	= 200		# num frequncy bins (distributed logarithmically in frequency range)
 max_per_dataset	= 30000
 
-export_count		= [ 11364, 6504 ]	# non dialog, dialog
+export_count		= [ 11364, 210822 ]	# non dialog, dialog
 sub_folder_name		= [ "non_dialog", "dialog" ]
 
 #-----------------------------------------------------------------------------
@@ -44,8 +45,7 @@ sub_folder_name		= [ "non_dialog", "dialog" ]
 def load_from_huggingface(resource, language):
 	# see https://huggingface.co/datasets/mozilla-foundation/common_voice_11_0
 	dataset = load_dataset(resource, language, split="train", trust_remote_code=True)
-	print(f"{resource} '{language}': rows = 
-	{len(dataset)}")
+	print(f"{resource} '{language}': rows = {len(dataset)}")
 	#print(f"num_rows={len(dataset)}")
 	#print(dataset)
 	#print(dataset[0])
@@ -160,14 +160,19 @@ def save_spectrogram(spectrogram_dbs, is_dialog, label):
 	# loaded_array = loaded_data['data']
 
 def export_spectrogram_from_dataset_item(dataset_item, is_dialog, label):
-	if not is_dialog and "human_labels" in dataset_item:
-		discard_labels = ["Speech", "Singing", "Chant"]
+	if not is_dialog:
+		if "human_labels" in dataset_item:
+			labels = dataset_item['human_labels']
+		if "caption_auditory" in dataset_item:
+			labels = ",".join(dataset_item['caption_auditory'])
+		discard_labels = ["speech", "singing", "chant", "talk", "talking"]
+		labels = labels.lower()
 		for discard_label in discard_labels:
-			if discard_label in dataset_item['human_labels']:
+			if discard_label in labels:
 				# this item was labelled as not dialog, but, actually probably is, so discard item
 				return
 	spectrogram_dbs = get_spectrogram(dataset_item)
-	#show_spectrogram(spectrogram_dbs)
+	show_spectrogram(spectrogram_dbs)
 	save_spectrogram(spectrogram_dbs, is_dialog, label)
 
 def export_spectrograms_from_dataset(dataset, is_dialog, label):
@@ -185,16 +190,15 @@ def process_dataset(resource, language, is_dialog):
 	export_spectrograms_from_dataset(dataset, is_dialog, label)
 	#visualize_some_data_items(dataset)
 
-#process_dataset( "mozilla-foundation/common_voice_11_0", "ja"		, True )
-#process_dataset( "agkphysics/AudioSet", ""							, False )
-process_dataset( "mozilla-foundation/common_voice_11_0", "en"		, True )
-process_dataset( "mozilla-foundation/common_voice_11_0", "ar"		, True )
-process_dataset( "mozilla-foundation/common_voice_11_0", "hi"		, True )
-process_dataset( "mozilla-foundation/common_voice_11_0", "zh-CN"	, True )
-process_dataset( "mozilla-foundation/common_voice_11_0", "fr"		, True )
-process_dataset( "mozilla-foundation/common_voice_11_0", "de"		, True )
-process_dataset( "mozilla-foundation/common_voice_11_0", "ru"		, True )
-process_dataset( "mozilla-foundation/common_voice_11_0", "es"		, True )
-
-
-
+if __name__ == '__main__':
+	# process_dataset( "mozilla-foundation/common_voice_11_0", "ja"		, True )
+	# process_dataset( "agkphysics/AudioSet", ""							, False )
+	# process_dataset( "mozilla-foundation/common_voice_11_0", "en"		, True )
+	# process_dataset( "mozilla-foundation/common_voice_11_0", "ar"		, True )
+	# process_dataset( "mozilla-foundation/common_voice_11_0", "hi"		, True )
+	# process_dataset( "mozilla-foundation/common_voice_11_0", "zh-CN"	, True )
+	# process_dataset( "mozilla-foundation/common_voice_11_0", "fr"		, True )
+	# process_dataset( "mozilla-foundation/common_voice_11_0", "de"		, True )
+	# process_dataset( "mozilla-foundation/common_voice_11_0", "ru"		, True )
+	# process_dataset( "mozilla-foundation/common_voice_11_0", "es"		, True )
+	print("finished")
