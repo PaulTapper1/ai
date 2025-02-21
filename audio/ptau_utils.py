@@ -6,7 +6,9 @@ hop_length 			= 512		# samples between each FFT slice
 min_freq_hz			= 200		# minimum frequency in spectrogram	# https://www.dpamicrophones.com/mic-university/background-knowledge/facts-about-speech-intelligibility/
 max_freq_hz			= 8000		# maximum frequency in spectrogram
 num_freq_bins 		= 200		# num frequncy bins (distributed logarithmically in frequency range)
-timeslices_wanted	= 30		# num of timeslices (hops) that are fed into the deep learning network
+timeslices_wanted	= 32		# num of timeslices (hops) that are fed into the deep learning network
+batch_size 			= 64
+
 
 def get_algorithm_lead_time_ms(sample_rate = 48000):
 	return ((n_fft + (timeslices_wanted-1)*hop_length ) / 48000) ** 1000
@@ -90,9 +92,11 @@ class Saver:
 #####################################################################################
 # Experiment
 plot_figure_num = 2
+import datetime
 
 class Experiment(Saveable):
 	def __init__(self, name, experiment_options):
+		self.name = name
 		self.experiment_options = experiment_options
 		self.iterator_cursor = [0]*len(self.experiment_options)
 		self.experiment = self._get_experiment_from_cursor()
@@ -140,6 +144,8 @@ class Experiment(Saveable):
 			if ret == False:
 				break
 			self.experiment = self._get_experiment_from_cursor()
+		now = datetime.datetime.now()
+		print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: Experiment '{self.name}' {self.experiment}")
 		return ret
 	
 	def get_experiment_str(self):

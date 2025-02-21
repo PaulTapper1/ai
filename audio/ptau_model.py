@@ -10,48 +10,51 @@ import os
 import random
 import sys
 import time
+import ptau_utils as utils
+import matplotlib.pyplot as plt
+import numpy as np
 
 visualize_errors = False
-#visualize_errors = True       # use this to switch off training, and just display visualizations of mis-categorised items
+#visualize_errors = True	   # use this to switch off training, and just display visualizations of mis-categorised items
 
-def is_colab():
-  return 'google.colab' in sys.modules
-if is_colab() == False:
-  from pytorch_utilities import FashionMNIST_Util
+# Note - network is designed to identify whether an input spectrogram is dialog or non dialog
+# the spectrogram is set up using the settings from ptau_utils
+# input = array of ( num_freq_bins x timeslices_wanted ) floats in range 0..1  ( = 200x30 = 6000 )
 
 # set up neural network
 class NeuralNetwork(nn.Module):
-    def __init__(self, settings):
-        super().__init__()
-        self.flatten = nn.Flatten()
-        conv2d_0 = settings[0]
-        conv2d_1 = settings[1]
-        linear_0 = settings[2]
-        self.linear_relu_stack = nn.Sequential(
-            nn.Conv2d(1, conv2d_0, kernel_size=3, padding=1),  # Input: 1 channel (grayscale), Output: conv2d_0 channels
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),  # Downsample by 2
-            nn.Conv2d(conv2d_0, conv2d_1, kernel_size=3, padding=1),  # Input: conv2d_0 channels, Output: conv2d_1 channels
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),   # Downsample by 2 again
-            nn.Flatten(),
-            nn.Linear(conv2d_1 * 28//4 * 28//4, linear_0),
-            nn.ReLU(),
-            nn.Linear(linear_0, 10),
-            #nn.LogSoftmax(),
-            )
-            
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self = self.to(device)
-        print("Device = ",device)
+	def __init__(self, settings):
+		super().__init__()
+		#self.flatten = nn.Flatten()
+		conv2d_0 = settings[0]
+		conv2d_1 = settings[1]
+		linear_0 = settings[2]
+		self.linear_relu_stack = nn.Sequential(
+			nn.Conv2d(1, conv2d_0, kernel_size=3, padding=1),  # Input: 1 channel (grayscale), Output: conv2d_0 channels
+			nn.ReLU(),
+			nn.MaxPool2d(kernel_size=2, stride=2),  # Downsample by 2
+			nn.Conv2d(conv2d_0, conv2d_1, kernel_size=3, padding=1),  # Input: conv2d_0 channels, Output: conv2d_1 channels
+			nn.ReLU(),
+			nn.MaxPool2d(kernel_size=2, stride=2),   # Downsample by 2 again
+			nn.Flatten(),
+			nn.Linear(conv2d_1 * utils.num_freq_bins//4 * utils.timeslices_wanted//4, linear_0),
+			nn.ReLU(),
+			nn.Linear(linear_0, 2),
+			#nn.LogSoftmax(),
+			)
+		#print(self.linear_relu_stack)
 
-    def forward(self, x):
-        #x = self.flatten(x)
-        logits = self.linear_relu_stack(x)
-        return logits
+		device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+		self = self.to(device)
+		print("Device = ",device)
+
+	def forward(self, x):
+		#x = self.flatten(x)
+		logits = self.linear_relu_stack(x)
+		return logits
 
 
-class PTModel:
+class Model:
 	def __init__(self, name, settings):
 		super().__init__()
 		self.model = NeuralNetwork(settings)
@@ -60,7 +63,6 @@ class PTModel:
 		self.epoch = 0
 		self.learning_rate = 1e-3
 		#self.learning_rate = 2e-4
-		self.batch_size = 256
 		self.loss_fn = nn.CrossEntropyLoss()
 		self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.learning_rate)
 		self.accuracy_percentage = 0
@@ -69,7 +71,7 @@ class PTModel:
 		self.graph_epoch_accuracy_percentage_training_data = []
 		self.load_if_save_file_present()
 
-	def loop_epochs(self,max_epoch,train_dataloader,test_dataloader):
+	def loop_epochs(self, max_epoch, train_dataloader, test_dataloader):
 		while self.epoch < max_epoch:
 			self.epoch += 1
 			epoch_start_time = time.time()
@@ -83,8 +85,9 @@ class PTModel:
 			epoch_elapsed_time = epoch_end_time - epoch_start_time
 			device = self.get_device()
 			print(f"{self.get_save_name()} epoch {self.epoch}... Accuracy: {self.accuracy_percentage:>0.1f}%. Time per epoch = {epoch_elapsed_time:0.1f}s ({device})")
+			self.display_graph(self.graph_epoch_accuracy_percentage)
 
-	def train_loop(self,dataloader):
+	def train_loop(self, dataloader):
 		#print("train_loop")
 
 		# Set the model to training mode - important for batch normalization and dropout layers
@@ -92,54 +95,68 @@ class PTModel:
 		self.model.train()
 		device = self.get_device()
 		correct = 0
+		count = 0
+		training_percentages = []
+		train_batches = 16
 
 		for batch, (X, y) in enumerate(dataloader):
-		  X, y = X.to(device), y.to(device)
+			if train_batches == 0:
+				break
+			train_batches -= 1
 
-		  # Compute prediction and loss
-		  pred = self.model(X)
-		  loss = self.loss_fn(pred, y)
+			#X, y = X.to(device), y.to(device)
+			X = X.to(device)
+			y = y.to(device)
 
-		  this_correct = (pred.argmax(1) == y).type(torch.float).sum().item()
-		  correct += this_correct
+			# Compute prediction and loss
+			pred = self.model(X)
+			loss = self.loss_fn(pred, y)
 
-		  # Backpropagation
-		  loss.backward()
-		  self.optimizer.step()
-		  self.optimizer.zero_grad()
+			this_correct = (pred.argmax(1) == y).type(torch.float).sum().item()
+			correct += this_correct
+			count += utils.batch_size
 
-		accuracy_percentage_training_data = correct / len(dataloader.dataset) * 100
+			percentage_correct = this_correct * 100 / utils.batch_size
+			training_percentages.append(percentage_correct)
+			#print(f"Batch {batch}: percentage_correct = {percentage_correct}")
+			#self.display_graph(training_percentages)
+
+			# Backpropagation
+			loss.backward()
+			self.optimizer.step()
+			self.optimizer.zero_grad()
+
+		accuracy_percentage_training_data = correct / count * 100
 		self.graph_epoch_accuracy_percentage_training_data.append(accuracy_percentage_training_data)
 
-
-	def test_loop(self,dataloader):
+	def test_loop(self, dataloader):
 		#print("test_loop")
 		# Set the model to evaluation mode - important for batch normalization and dropout layers
 		# Unnecessary in this situation but added for best practices
 		self.model.eval()
-		size = len(dataloader.dataset)
 		num_batches = len(dataloader)
 		test_loss, correct = 0, 0
+		count = 0
+		test_batches = 16
 
 		# Evaluating the model with torch.no_grad() ensures that no gradients are computed during test mode
 		# also serves to reduce unnecessary gradient computations and memory usage for tensors with requires_grad=True
 		with torch.no_grad():
 			device = self.get_device()
 			for X, y in dataloader:
+				if test_batches == 0:
+					break
+				test_batches -= 1
+
 				X, y = X.to(device), y.to(device)
 				pred = self.model(X)
 				test_loss += self.loss_fn(pred, y).item()
 				this_correct = (pred.argmax(1) == y).type(torch.float).sum().item()
 				correct += this_correct
-
-				if visualize_errors:
-				  # display something we got wrong
-				  if this_correct < self.batch_size:
-					util = FashionMNIST_Util()
-					util.DisplayPrediction(X, y, pred)
+				count += utils.batch_size
 
 		test_loss /= num_batches
-		correct /= size
+		correct /= count
 		self.accuracy_percentage = 100*correct
 		self.graph_epoch.append(self.epoch)
 		self.graph_epoch_accuracy_percentage.append(self.accuracy_percentage)
@@ -148,7 +165,7 @@ class PTModel:
 		return next(self.model.parameters()).device
 
 	def get_save_name(self):
-		filename = "pytorch_"+self.name+"_"
+		filename = self.name+"_"
 		for setting in self.settings:
 		  filename += str(setting)+"_"
 		return filename+".dat"
@@ -184,3 +201,14 @@ class PTModel:
 		self.graph_epoch_accuracy_percentage_training_data = checkpoint['graph_epoch_accuracy_percentage_training_data']
 		self.accuracy_percentage = self.graph_epoch_accuracy_percentage[-1]
 		print(f"Loaded epoch {self.epoch}")
+
+	def display_graph(self, data, smooth = 10, block=False):
+		plt.figure(num=0)
+		plt.clf()
+		plt.plot(data)
+		if smooth>0 and len(data) >= smooth:
+			window = np.ones(int(smooth))/float(smooth)
+			smoothed = np.convolve(data, window, 'valid')
+			plt.plot(np.arange(smooth//2, smooth//2+len(smoothed)),smoothed)
+		plt.pause(0.2)  # pause a bit so that plots are updated
+		plt.show(block=block)

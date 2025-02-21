@@ -26,16 +26,16 @@ import sounddevice as sd
 import librosa
 import librosa.display
 from scipy import signal
-import ptau_utils
+import ptau_utils as utils
 
 
 #-----------------------------------------------------------------------------
 # Global settings
-n_fft 			= ptau_utils.n_fft				# size of FFTs
-hop_length 		= ptau_utils.hop_length			# samples between each FFT slice
-min_freq_hz		= ptau_utils.min_freq_hz		# minimum frequency in spectrogram	# https://www.dpamicrophones.com/mic-university/background-knowledge/facts-about-speech-intelligibility/
-max_freq_hz		= ptau_utils.max_freq_hz		# maximum frequency in spectrogram
-num_freq_bins 	= ptau_utils.num_freq_bins		# num frequncy bins (distributed logarithmically in frequency range)
+n_fft 			= utils.n_fft				# size of FFTs
+hop_length 		= utils.hop_length			# samples between each FFT slice
+min_freq_hz		= utils.min_freq_hz		# minimum frequency in spectrogram	# https://www.dpamicrophones.com/mic-university/background-knowledge/facts-about-speech-intelligibility/
+max_freq_hz		= utils.max_freq_hz		# maximum frequency in spectrogram
+num_freq_bins 	= utils.num_freq_bins		# num frequncy bins (distributed logarithmically in frequency range)
 max_per_dataset	= 30000
 
 export_count		= [ 11364, 210822 ]	# non dialog, dialog
