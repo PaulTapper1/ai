@@ -10,7 +10,7 @@ train_dataloader 	= DataLoader(training_data, shuffle=True, batch_size=utils.bat
 test_dataloader 	= DataLoader(test_data, batch_size=utils.batch_size) #, pin_memory=True)
 
 #max_epoch = 300
-max_epoch = 10000
+max_epoch = 1000
 name =  "dialog_detect"
 
 experiment = utils.Experiment(name,
@@ -23,10 +23,12 @@ experiment = utils.Experiment(name,
 		# [64,128],		 # conv2D layer1
 		# [128,256,512],   # linear layer0
 
-		[64],		 # conv2D layer0
-		[128],		 # conv2D layer1
-		[256],		 # linear layer0
-		["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z"],
+		[64,32],		 # conv2D layer0
+		[128,64],		 # conv2D layer1
+		[256,128],		 # linear layer0
+		["A"],
+		#["A","B"],
+		#["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z"],
 	] )
 
 while experiment.iterate():

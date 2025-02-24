@@ -43,6 +43,8 @@ import os
 import uuid
 import json
 import glob
+import time
+import torch
 
 class Saver:
 	def __init__(self, filename, folder="data"):
@@ -93,6 +95,8 @@ class Saver:
 # Experiment
 plot_figure_num = 2
 import datetime
+import matplotlib.pyplot as plt
+import numpy as np
 
 class Experiment(Saveable):
 	def __init__(self, name, experiment_options):
@@ -104,9 +108,11 @@ class Experiment(Saveable):
 		self.completed_experiments = {}
 		if self.saver.save_exists():
 			self.saver.load_data_into("experiment", self)
+			print(f"Loaded experiment completed_experiments = {self.completed_experiments}")
 		global plot_figure_num
 		self.plot_figure_num = plot_figure_num
 		plot_figure_num += 1
+		self.plot()
 
 	def to_saveable(self):
 		return self.completed_experiments
@@ -158,24 +164,17 @@ class Experiment(Saveable):
 		
 	def plot(self, block=False, save_image=False):
 		fontsize = 8
-		plt.figure(num=self.plot_figure_num)
+		figure = plt.figure(num=self.plot_figure_num)
 		plt.clf()
 		plt.title("Experiment: "+self.saver.filename, fontsize=fontsize)
-		plt.grid(axis='x')  # Add vertical grid lines
-		plt.grid(axis='y')  # Add vertical grid lines
-		plt.xticks(np.arange(len(self.completed_experiments.items())))
-		plt.yticks([-200,-100,0,100,200,300])
-		plt.tick_params(axis='x', which='major', labelsize=8)  
-		plt.tick_params(axis='y', which='major', labelsize=8)  
-		for num, (key, (data, av)) in enumerate(self.completed_experiments.items()):
-			data.sort()
-			x_coords = np.arange(len(data))*(0.5/len(data)) + float(num)
-			all_points = list(zip(x_coords,data))
-			lose_points = [p for p in all_points if p[1] < 200]
-			win_points = [p for p in all_points if p[1] >= 200]
-			plt.plot( [p[0] for p in lose_points], [p[1] for p in lose_points], "ro", markersize=5)
-			plt.plot( [p[0] for p in win_points], [p[1] for p in win_points], "go", markersize=5)
-	
+		plt.tick_params(axis='y', which='major', labelsize=8)
+		figure.subplots_adjust(left=0.20)
+		plt.xticks([90,91,92,93,94,95,96,97,98,99,100])
+		plt.axis([90,100,-0.5,len(self.completed_experiments)-0.5])
+		for num, (key, value) in enumerate(self.completed_experiments.items()):
+			print(f"{num}, {key}, {value}")
+			plt.barh(key, value)
+				
 		plt.pause(0.2)  # pause a bit so that plots are updated
 		if save_image:
 			image_filename = self.saver.filename+".png"

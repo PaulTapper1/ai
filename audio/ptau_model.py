@@ -84,7 +84,7 @@ class Model:
 			epoch_end_time = time.time()
 			epoch_elapsed_time = epoch_end_time - epoch_start_time
 			device = self.get_device()
-			print(f"{self.get_save_name()} epoch {self.epoch}... Accuracy: {self.accuracy_percentage:>0.1f}%. Time per epoch = {epoch_elapsed_time:0.1f}s ({device})")
+			print(f"{self.get_save_name()} epoch {self.epoch} Accuracy: {self.accuracy_percentage:>0.1f}%. Time per epoch = {epoch_elapsed_time:0.1f}s ({device})")
 			self.display_graph(self.graph_epoch_accuracy_percentage)
 
 	def train_loop(self, dataloader):
@@ -185,6 +185,7 @@ class Model:
 	def load_if_save_file_present(self):
 		filename = self.get_save_name()
 		if os.path.isfile(filename):
+			print(f"Found {filename}")
 			self.load(filename)
 		else:
 			print(f"File {filename} not found")
@@ -205,10 +206,13 @@ class Model:
 	def display_graph(self, data, smooth = 10, block=False):
 		plt.figure(num=0)
 		plt.clf()
-		plt.plot(data)
-		if smooth>0 and len(data) >= smooth:
+		plt.yscale('log')
+		plt.xscale('log')
+		error = 100-np.array(data)
+		plt.plot(error)
+		if smooth>0 and len(error) >= smooth:
 			window = np.ones(int(smooth))/float(smooth)
-			smoothed = np.convolve(data, window, 'valid')
+			smoothed = np.convolve(error, window, 'valid')
 			plt.plot(np.arange(smooth//2, smooth//2+len(smoothed)),smoothed)
 		plt.pause(0.2)  # pause a bit so that plots are updated
 		plt.show(block=block)
