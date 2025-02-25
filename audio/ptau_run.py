@@ -23,9 +23,9 @@ experiment = utils.Experiment(name,
 		# [64,128],		 # conv2D layer1
 		# [128,256,512],   # linear layer0
 
-		[64,32],		 # conv2D layer0
-		[128,64],		 # conv2D layer1
-		[256,128],		 # linear layer0
+		[128,64],		 # conv2D layer0
+		[256,128],		 # conv2D layer1
+		[512,256],		 # linear layer0
 		["A"],
 		#["A","B"],
 		#["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z"],

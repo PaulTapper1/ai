@@ -3,6 +3,7 @@
 # pip3 install matplotlib
 # pip3 install torch
 # pip3 install torchvision
+# pip3 install pyinstrument
 
 import torch
 from torch import nn
@@ -13,9 +14,7 @@ import time
 import ptau_utils as utils
 import matplotlib.pyplot as plt
 import numpy as np
-
-visualize_errors = False
-#visualize_errors = True	   # use this to switch off training, and just display visualizations of mis-categorised items
+from pyinstrument import Profiler
 
 # Note - network is designed to identify whether an input spectrogram is dialog or non dialog
 # the spectrogram is set up using the settings from ptau_utils
@@ -76,8 +75,13 @@ class Model:
 			self.epoch += 1
 			epoch_start_time = time.time()
 
-			if visualize_errors != True:
-			  self.train_loop(train_dataloader)
+			# with Profiler(interval=0.1) as profiler:
+				# self.train_loop(train_dataloader)
+				# self.test_loop(test_dataloader)
+				# self.save()
+			# profiler.print()
+
+			self.train_loop(train_dataloader)
 			self.test_loop(test_dataloader)
 			self.save()
 
@@ -85,7 +89,7 @@ class Model:
 			epoch_elapsed_time = epoch_end_time - epoch_start_time
 			device = self.get_device()
 			print(f"{self.get_save_name()} epoch {self.epoch} Accuracy: {self.accuracy_percentage:>0.1f}%. Time per epoch = {epoch_elapsed_time:0.1f}s ({device})")
-			self.display_graph(self.graph_epoch_accuracy_percentage)
+			self.plot()
 
 	def train_loop(self, dataloader):
 		#print("train_loop")
@@ -119,7 +123,6 @@ class Model:
 			percentage_correct = this_correct * 100 / utils.batch_size
 			training_percentages.append(percentage_correct)
 			#print(f"Batch {batch}: percentage_correct = {percentage_correct}")
-			#self.display_graph(training_percentages)
 
 			# Backpropagation
 			loss.backward()
@@ -183,6 +186,9 @@ class Model:
 		#print("Saved PyTorch Model State to " + filename)
 
 	def load_if_save_file_present(self):
+		folder = "data"
+		if not os.getcwd().endswith(folder):	# move into data subfolder
+			os.chdir(folder)
 		filename = self.get_save_name()
 		if os.path.isfile(filename):
 			print(f"Found {filename}")
@@ -203,16 +209,27 @@ class Model:
 		self.accuracy_percentage = self.graph_epoch_accuracy_percentage[-1]
 		print(f"Loaded epoch {self.epoch}")
 
-	def display_graph(self, data, smooth = 10, block=False):
+	def _plot_data(self, data, sub_from_100=True, smooth=10):
+		if sub_from_100:
+			data = 100-np.array(data)
+		plt.plot(data)
+		if smooth>0 and len(data) >= smooth:
+			window = np.ones(int(smooth))/float(smooth)
+			smoothed = np.convolve(data, window, 'valid')
+			plt.plot(np.arange(smooth//2, smooth//2+len(smoothed)),smoothed)
+		
+		
+	def plot(self, smooth = 10, block=False):
 		plt.figure(num=0)
 		plt.clf()
 		plt.yscale('log')
 		plt.xscale('log')
-		error = 100-np.array(data)
-		plt.plot(error)
-		if smooth>0 and len(error) >= smooth:
-			window = np.ones(int(smooth))/float(smooth)
-			smoothed = np.convolve(error, window, 'valid')
-			plt.plot(np.arange(smooth//2, smooth//2+len(smoothed)),smoothed)
+		plt.yticks([50,40,30,20,10,5,4,3,2,1])
+		plt.axis([1,len(self.graph_epoch_accuracy_percentage),1,50])
+		plt.grid(axis='both', which='both')
+		plt.title(f"{self.get_save_name()} epochs = {len(self.graph_epoch_accuracy_percentage)} final error = {100-self.graph_epoch_accuracy_percentage[-1]}%")
+
+		#self._plot_data(self.graph_epoch_accuracy_percentage_training_data, sub_from_100=True, smooth=smooth)
+		self._plot_data(self.graph_epoch_accuracy_percentage, sub_from_100=True, smooth=smooth)
 		plt.pause(0.2)  # pause a bit so that plots are updated
 		plt.show(block=block)

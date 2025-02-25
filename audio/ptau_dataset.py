@@ -6,6 +6,12 @@ import random
 import ptau_export_spectrograms
 import numpy as np
 
+class SpectrogramFileData():
+	def __init__(self):
+		self.data = None
+		self.time_slack = 0
+		self.time_offset = 0
+
 class SpectrogramDataset(Dataset):
 	"""Spectrogram dataset for dialog detection.
 		
@@ -25,6 +31,7 @@ class SpectrogramDataset(Dataset):
 		self.category			= {}
 		self.category[0]		= self.extract_category("non_dialog")
 		self.category[1]		= self.extract_category("dialog")
+		self.file_data			= [None, None]
 
 	def extract_category(self, sub_folder):
 		ret						= {}
