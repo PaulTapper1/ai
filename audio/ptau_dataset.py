@@ -7,21 +7,24 @@ import ptau_export_spectrograms
 import numpy as np
 
 class SpectrogramFileData():
-	def __init__(self, path):
-		file_unpack = np.load(path)
-		self.data = file_unpack['data']
-		freqbins, timebins = np.shape(self.data)
-		self.time_slack = timebins-utils.timeslices_wanted
-		self.time_offset = 0
+	def __init__(self, path, num_per_file = 10):
+		file_unpack 		= np.load(path)
+		self.data 			= file_unpack['data']
+		self.num_left 		= num_per_file
+		freqbins, timebins 	= np.shape(self.data)
+		self.time_slack 	= timebins-utils.timeslices_wanted
 		#print(f"Caching {path}, time_slack = {self.time_slack}")
 		
 	def is_ready(self):
-		return self.time_offset<self.time_slack
+		return self.num_left>0 and self.time_slack>=0
 		
 	def get_next_sub_spectrogram(self):
-		spectrogram_db = self.data[:,self.time_offset:self.time_offset+utils.timeslices_wanted]
-		self.time_offset += 1
-		return spectrogram_db
+		if self.time_slack>=0:
+			time_offset = random.randint(0, self.time_slack)
+			spectrogram_db = self.data[:,time_offset:time_offset+utils.timeslices_wanted]
+			self.num_left -= 1
+			return spectrogram_db
+		return None
 
 class SpectrogramDataset(Dataset):
 	"""Spectrogram dataset for dialog detection.

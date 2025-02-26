@@ -67,6 +67,8 @@ class Model:
 		self.accuracy_percentage = 0
 		self.logger = utils.Logger(name)
 		self.saver = utils.Saver(self.get_save_name())
+		self.seed_train 	= None
+		self.seed_test 		= 0
 		if self.saver.save_exists():
 			self.load()
 		else:
@@ -103,18 +105,16 @@ class Model:
 		device = self.get_device()
 		correct = 0
 		count = 0
-		training_percentages = []
 		batches = utils.train_batches
+		random.seed(self.seed_train)
 
 		for batch, (X, y) in enumerate(dataloader):
 			if batches == 0:
 				break
 			batches -= 1
-			print(f"Training: batches left {batches}/{utils.train_batches}           \r", end="")
+			print(f"Train: batches left {batches}/{utils.train_batches}           \r", end="")
 
-			#X, y = X.to(device), y.to(device)
-			X = X.to(device)
-			y = y.to(device)
+			X, y = X.to(device), y.to(device)
 
 			# Compute prediction and loss
 			pred = self.model(X)
@@ -122,17 +122,14 @@ class Model:
 
 			this_correct = (pred.argmax(1) == y).type(torch.float).sum().item()
 			correct += this_correct
-			count += utils.batch_size
-
-			percentage_correct = this_correct * 100 / utils.batch_size
-			training_percentages.append(percentage_correct)
-			#print(f"Batch {batch}: percentage_correct = {percentage_correct}")
+			count += len(y) #utils.batch_size
 
 			# Backpropagation
 			loss.backward()
 			self.optimizer.step()
 			self.optimizer.zero_grad()
 
+		#print(f"Epoch trained on {count} items")
 		accuracy_percentage_training_data = correct / count * 100
 		self.logger.set_frame_value("epoch_error_percentage_training_data", 100-accuracy_percentage_training_data)
 
@@ -145,6 +142,7 @@ class Model:
 		test_loss, correct = 0, 0
 		count = 0
 		batches = utils.test_batches
+		random.seed(self.seed_test)
 
 		# Evaluating the model with torch.no_grad() ensures that no gradients are computed during test mode
 		# also serves to reduce unnecessary gradient computations and memory usage for tensors with requires_grad=True
@@ -154,7 +152,7 @@ class Model:
 				if batches == 0:
 					break
 				batches -= 1
-				print(f"Testing: batches left {batches}/{utils.test_batches}          \r", end="")
+				print(f"Test: batches left {batches}/{utils.test_batches}          \r", end="")
 
 				X, y = X.to(device), y.to(device)
 				pred = self.model(X)

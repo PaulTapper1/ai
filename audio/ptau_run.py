@@ -10,7 +10,7 @@ train_dataloader 	= DataLoader(training_data, shuffle=True, batch_size=utils.bat
 test_dataloader 	= DataLoader(test_data, batch_size=utils.batch_size) #, pin_memory=True)
 
 #max_epoch = 300
-max_epoch = 5000
+max_epoch = 3000
 name =  "dialog_detect"
 
 experiment = utils.Experiment(name,
