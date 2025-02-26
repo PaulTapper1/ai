@@ -7,8 +7,11 @@ min_freq_hz			= 200		# minimum frequency in spectrogram	# https://www.dpamicroph
 max_freq_hz			= 8000		# maximum frequency in spectrogram
 num_freq_bins 		= 200		# num frequncy bins (distributed logarithmically in frequency range)
 timeslices_wanted	= 32		# num of timeslices (hops) that are fed into the deep learning network
-batch_size 			= 64
-
+batch_size 			= 512
+train_batches		= 64
+test_batches 		= 16
+#train_batches		= 16
+#test_batches 		= 8
 
 def get_algorithm_lead_time_ms(sample_rate = 48000):
 	return ((n_fft + (timeslices_wanted-1)*hop_length ) / 48000) ** 1000
@@ -26,6 +29,61 @@ def wait_for_any_keypress():
 	msvcrt.getch()
 	
 #####################################################################################
+# Logging and Graphing
+import matplotlib
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+import numpy as np
+
+class Logger():
+	def __init__(self, name=""):
+		self.data = {}
+		self.num_frames = 0
+		self.name = name
+		
+	def set_frame_value(self, key, value):
+		if not key in self.data :
+			if self.num_frames == 0 :
+				self.data[key] = []
+			else:
+				self.data[key] = [value]*self.num_frames
+		if len(self.data[key]) == self.num_frames:
+			self.data[key].append(value)
+		else:
+			self.data[key][self.num_frames] = value
+	
+	def get_latest_value(self, key):
+		if not key in self.data :
+			return 0
+		data_list = self.data[key]
+		if len(data_list) > 0 :
+			return data_list[len(data_list)-1]
+		else:
+			return 0
+	
+	def next_frame(self):
+		self.num_frames += 1
+		for key in self.data.keys():
+			if len(self.data[key]) < self.num_frames:
+				self.data[key].append(self.data[key][self.num_frames-2])
+				
+	def to_saveable(self):
+		return self.data
+		
+	def from_saveable(self, saveable):
+		self.data = saveable
+		self.num_frames = 0
+		if len(self.data.keys()) > 0 :
+			self.num_frames = len(self.data[next(iter(self.data))])
+		
+	def __str__(self):
+		ret = ""
+		ret += f"Logger: Num_frames = {self.num_frames}\n"
+		for key in self.data.keys():
+			ret += f"{key} : {self.data[key]}\n"
+		return ret
+
+#####################################################################################
 # Saveable
 class Saveable():
 	def to_saveable(self):
@@ -35,6 +93,9 @@ class Saveable():
 		self = saveable
 
 class SaveableDict(dict, Saveable):
+	pass
+
+class SaveableList(list, Saveable):
 	pass
 
 #####################################################################################
@@ -78,12 +139,15 @@ class Saver:
 			os.rename(temp_filename+"."+extension, self.filename+"."+extension)
 		self.data_to_save = {}
 		elapsed_time = time.time() - start_time
-		print(f"Saved {self.filename} ({elapsed_time:0.1f} secs)")
+		#print(f"Saved {self.filename} ({elapsed_time:0.1f} secs)")
 	
 	def save_exists(self):
-		return (len(glob.glob(self.filename+".*")) > 0)
+		search_filter = os.getcwd()+"\\"+self.filename+".*"
+		found_files = glob.glob(search_filter)
+		return (len(found_files) > 0)
 
 	def load_data_into(self, extension, obj, is_net=False):
+		#loaded_data = torch.load(os.getcwd()+"\\"+self.filename+"."+extension, weights_only=False)
 		loaded_data = torch.load(self.filename+"."+extension, weights_only=False)
 		if is_net:
 			obj.load_state_dict(loaded_data)
@@ -163,21 +227,24 @@ class Experiment(Saveable):
 		self.saver.save()
 		
 	def plot(self, block=False, save_image=False):
-		fontsize = 8
-		figure = plt.figure(num=self.plot_figure_num)
-		plt.clf()
-		plt.title("Experiment: "+self.saver.filename, fontsize=fontsize)
-		plt.tick_params(axis='y', which='major', labelsize=8)
-		figure.subplots_adjust(left=0.20)
-		plt.xticks([90,91,92,93,94,95,96,97,98,99,100])
-		plt.axis([90,100,-0.5,len(self.completed_experiments)-0.5])
-		for num, (key, value) in enumerate(self.completed_experiments.items()):
-			print(f"{num}, {key}, {value}")
-			plt.barh(key, value)
-				
-		plt.pause(0.2)  # pause a bit so that plots are updated
-		if save_image:
-			image_filename = self.saver.filename+".png"
-			plt.savefig(image_filename)
-			print(f"Saved image {image_filename}")
-		plt.show(block=block)
+		if len(self.completed_experiments)==0:
+			print(f"{self.name} has no completed experiments")
+		else:
+			fontsize = 8
+			figure = plt.figure(num=self.plot_figure_num)
+			plt.clf()
+			plt.title("Experiment: "+self.saver.filename, fontsize=fontsize)
+			plt.tick_params(axis='y', which='major', labelsize=8)
+			figure.subplots_adjust(left=0.20)
+			plt.xticks([90,91,92,93,94,95,96,97,98,99,100])
+			plt.axis([90,100,-0.5,len(self.completed_experiments)-0.5])
+			for num, (key, value) in enumerate(self.completed_experiments.items()):
+				print(f"{num}, {key}, {value}")
+				plt.barh(key, value)
+					
+			plt.pause(0.2)  # pause a bit so that plots are updated
+			if save_image:
+				image_filename = self.saver.filename+".png"
+				plt.savefig(image_filename)
+				print(f"Saved image {image_filename}")
+			plt.show(block=block)

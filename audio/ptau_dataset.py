@@ -7,10 +7,21 @@ import ptau_export_spectrograms
 import numpy as np
 
 class SpectrogramFileData():
-	def __init__(self):
-		self.data = None
-		self.time_slack = 0
+	def __init__(self, path):
+		file_unpack = np.load(path)
+		self.data = file_unpack['data']
+		freqbins, timebins = np.shape(self.data)
+		self.time_slack = timebins-utils.timeslices_wanted
 		self.time_offset = 0
+		#print(f"Caching {path}, time_slack = {self.time_slack}")
+		
+	def is_ready(self):
+		return self.time_offset<self.time_slack
+		
+	def get_next_sub_spectrogram(self):
+		spectrogram_db = self.data[:,self.time_offset:self.time_offset+utils.timeslices_wanted]
+		self.time_offset += 1
+		return spectrogram_db
 
 class SpectrogramDataset(Dataset):
 	"""Spectrogram dataset for dialog detection.
@@ -19,6 +30,7 @@ class SpectrogramDataset(Dataset):
 
 	phase_percentage			= [ 80, 10, 10 ]
 	phase_base					= [  0, 80, 90 ]
+	num_file_caches				= 16
 
 	def __init__(self, root_dir, phase):
 		"""
@@ -31,7 +43,8 @@ class SpectrogramDataset(Dataset):
 		self.category			= {}
 		self.category[0]		= self.extract_category("non_dialog")
 		self.category[1]		= self.extract_category("dialog")
-		self.file_data			= [None, None]
+		self.file_data			= [[None]*SpectrogramDataset.num_file_caches, [None]*SpectrogramDataset.num_file_caches]
+		self.file_cache			= [0, 0]
 
 	def extract_category(self, sub_folder):
 		ret						= {}
@@ -73,29 +86,29 @@ class SpectrogramDataset(Dataset):
 		assert this_category in [0,1]
 		have_found_valid_x = False
 		spectrogram_db = False
+		this_file_cache = self.file_cache[this_category]
 		while not have_found_valid_x:
-			num_items = self.get_num_items(this_category)
-			unmapped_idx = random.randint(0, num_items-1)	# just discard idx passed in and select a random one of the correct category
-			idx = self.map_index(unmapped_idx)
-			#with open(self.category[this_category]["index_file"], 'r') as fp:
-			index_lines = self.category[this_category]["lines"]
-			while idx>=len(index_lines):
-				idx -= len(index_lines)	# dodgy hack to ensure it doesn't go out of bounds of array
-			index_line = index_lines[idx]
-			index = index_line.split(", ")
-			filename = index[3].strip()
-			path = os.path.join(self.category[this_category]["dir"], filename+".npz")
-			loaded_data = np.load(path)
-			spectrogram_db = loaded_data['data']
-			freqbins, timebins = np.shape(spectrogram_db)
-			time_slack = timebins-utils.timeslices_wanted
-			if time_slack>=0:
-				time_offset = random.randint(0,time_slack)
-				spectrogram_db = spectrogram_db[:,time_offset:time_offset+utils.timeslices_wanted]
-				## half the freq resolution
-				#spectrogram_db = spectrogram_db[:,x.reshape((-1, 2)).sum(axis=1)
+			if self.file_data[this_category][this_file_cache]==None:
+				num_items = self.get_num_items(this_category)
+				unmapped_idx = random.randint(0, num_items-1)	# just discard idx passed in and select a random one of the correct category
+				idx = self.map_index(unmapped_idx)
+				#with open(self.category[this_category]["index_file"], 'r') as fp:
+				index_lines = self.category[this_category]["lines"]
+				while idx>=len(index_lines):
+					idx -= len(index_lines)	# dodgy hack to ensure it doesn't go out of bounds of array
+				index_line = index_lines[idx]
+				index = index_line.split(", ")
+				filename = index[3].strip()
+				path = os.path.join(self.category[this_category]["dir"], filename+".npz")
+				self.file_data[this_category][this_file_cache] = SpectrogramFileData(path)
+			
+			if self.file_data[this_category][this_file_cache].is_ready():
+				spectrogram_db = self.file_data[this_category][this_file_cache].get_next_sub_spectrogram()
 				have_found_valid_x = True
 				spectrogram_db = spectrogram_db.astype(np.float32)
+				self.file_cache[this_category] = (self.file_cache[this_category]+1) % SpectrogramDataset.num_file_caches
+			else:
+				self.file_data[this_category][this_file_cache]=None
 		ret_x = torch.from_numpy(spectrogram_db).unsqueeze(0)	# unsqueeze an extra dimension to the tensor at the start to represent "one-channel" image
 		return (ret_x, this_category)
 		#return (ret_x, torch.from_numpy(this_category))

@@ -14,7 +14,7 @@ import time
 import ptau_utils as utils
 import matplotlib.pyplot as plt
 import numpy as np
-from pyinstrument import Profiler
+#from pyinstrument import Profiler
 
 # Note - network is designed to identify whether an input spectrogram is dialog or non dialog
 # the spectrogram is set up using the settings from ptau_utils
@@ -58,18 +58,20 @@ class Model:
 		super().__init__()
 		self.model = NeuralNetwork(settings)
 		self.name = name
-		self.settings = settings
+		self.settings = utils.SaveableList(settings)
 		self.epoch = 0
 		self.learning_rate = 1e-3
 		#self.learning_rate = 2e-4
 		self.loss_fn = nn.CrossEntropyLoss()
 		self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.learning_rate)
 		self.accuracy_percentage = 0
-		self.graph_epoch = []
-		self.graph_epoch_accuracy_percentage = []
-		self.graph_epoch_accuracy_percentage_training_data = []
-		self.load_if_save_file_present()
-
+		self.logger = utils.Logger(name)
+		self.saver = utils.Saver(self.get_save_name())
+		if self.saver.save_exists():
+			self.load()
+		else:
+			print(f"Save file for {self.saver.filename} not found")
+						
 	def loop_epochs(self, max_epoch, train_dataloader, test_dataloader):
 		while self.epoch < max_epoch:
 			self.epoch += 1
@@ -84,6 +86,7 @@ class Model:
 			self.train_loop(train_dataloader)
 			self.test_loop(test_dataloader)
 			self.save()
+			self.logger.next_frame()
 
 			epoch_end_time = time.time()
 			epoch_elapsed_time = epoch_end_time - epoch_start_time
@@ -101,12 +104,13 @@ class Model:
 		correct = 0
 		count = 0
 		training_percentages = []
-		train_batches = 16
+		batches = utils.train_batches
 
 		for batch, (X, y) in enumerate(dataloader):
-			if train_batches == 0:
+			if batches == 0:
 				break
-			train_batches -= 1
+			batches -= 1
+			print(f"Training: batches left {batches}/{utils.train_batches}           \r", end="")
 
 			#X, y = X.to(device), y.to(device)
 			X = X.to(device)
@@ -130,7 +134,7 @@ class Model:
 			self.optimizer.zero_grad()
 
 		accuracy_percentage_training_data = correct / count * 100
-		self.graph_epoch_accuracy_percentage_training_data.append(accuracy_percentage_training_data)
+		self.logger.set_frame_value("epoch_error_percentage_training_data", 100-accuracy_percentage_training_data)
 
 	def test_loop(self, dataloader):
 		#print("test_loop")
@@ -140,16 +144,17 @@ class Model:
 		num_batches = len(dataloader)
 		test_loss, correct = 0, 0
 		count = 0
-		test_batches = 16
+		batches = utils.test_batches
 
 		# Evaluating the model with torch.no_grad() ensures that no gradients are computed during test mode
 		# also serves to reduce unnecessary gradient computations and memory usage for tensors with requires_grad=True
 		with torch.no_grad():
 			device = self.get_device()
 			for X, y in dataloader:
-				if test_batches == 0:
+				if batches == 0:
 					break
-				test_batches -= 1
+				batches -= 1
+				print(f"Testing: batches left {batches}/{utils.test_batches}          \r", end="")
 
 				X, y = X.to(device), y.to(device)
 				pred = self.model(X)
@@ -161,8 +166,8 @@ class Model:
 		test_loss /= num_batches
 		correct /= count
 		self.accuracy_percentage = 100*correct
-		self.graph_epoch.append(self.epoch)
-		self.graph_epoch_accuracy_percentage.append(self.accuracy_percentage)
+		self.logger.set_frame_value("epoch",self.epoch)
+		self.logger.set_frame_value("epoch_error_percentage",100-self.accuracy_percentage)
 
 	def get_device(self):
 		return next(self.model.parameters()).device
@@ -171,45 +176,24 @@ class Model:
 		filename = self.name+"_"
 		for setting in self.settings:
 		  filename += str(setting)+"_"
-		return filename+".dat"
+		return filename
+
+	def load(self):
+		self.saver.load_data_into("model", 		self.model, 	is_net=True	)
+		self.saver.load_data_into("logger", 	self.logger					)
+		self.saver.load_data_into("settings", 	self.settings				)
+		
+		self.epoch 					= self.logger.get_latest_value("epoch")
+		self.accuracy_percentage 	= 100-self.logger.get_latest_value("epoch_error_percentage")
+		print(f"Loaded model {self.name} epochs = {self.epoch} accuracy = {self.accuracy_percentage}")
 
 	def save(self):
-		filename = self.get_save_name()
-		torch.save({
-					'settings': self.settings,
-					'epoch': self.epoch,
-					'model_state_dict': self.model.state_dict(),
-					'graph_epoch': self.graph_epoch,
-					'graph_epoch_accuracy_percentage': self.graph_epoch_accuracy_percentage,
-					'graph_epoch_accuracy_percentage_training_data': self.graph_epoch_accuracy_percentage_training_data,
-					}, filename)
-		#print("Saved PyTorch Model State to " + filename)
+		self.saver.add_data_to_save( "model",			self.model, 	is_net=True )
+		self.saver.add_data_to_save( "logger",			self.logger 				)
+		self.saver.add_data_to_save( "settings", 		self.settings 				)
+		self.saver.save()
 
-	def load_if_save_file_present(self):
-		folder = "data"
-		if not os.getcwd().endswith(folder):	# move into data subfolder
-			os.chdir(folder)
-		filename = self.get_save_name()
-		if os.path.isfile(filename):
-			print(f"Found {filename}")
-			self.load(filename)
-		else:
-			print(f"File {filename} not found")
-
-	def load(self, filename):
-		print(f"Loading save file {filename}")
-		checkpoint = torch.load(filename,weights_only=False)
-		self.settings = checkpoint['settings']
-		self.epoch = checkpoint['epoch']
-		self.model.load_state_dict(checkpoint['model_state_dict'])
-		self.model.eval()  # Set the model to evaluation mode
-		self.graph_epoch = checkpoint['graph_epoch']
-		self.graph_epoch_accuracy_percentage = checkpoint['graph_epoch_accuracy_percentage']
-		self.graph_epoch_accuracy_percentage_training_data = checkpoint['graph_epoch_accuracy_percentage_training_data']
-		self.accuracy_percentage = self.graph_epoch_accuracy_percentage[-1]
-		print(f"Loaded epoch {self.epoch}")
-
-	def _plot_data(self, data, sub_from_100=True, smooth=10):
+	def _plot_data(self, data, sub_from_100=False, smooth=10):
 		if sub_from_100:
 			data = 100-np.array(data)
 		plt.plot(data)
@@ -220,16 +204,16 @@ class Model:
 		
 		
 	def plot(self, smooth = 10, block=False):
+		data = self.logger.data["epoch_error_percentage"]
 		plt.figure(num=0)
 		plt.clf()
 		plt.yscale('log')
 		plt.xscale('log')
 		plt.yticks([50,40,30,20,10,5,4,3,2,1])
-		plt.axis([1,len(self.graph_epoch_accuracy_percentage),1,50])
+		plt.axis([1,len(data),1,50])
 		plt.grid(axis='both', which='both')
-		plt.title(f"{self.get_save_name()} epochs = {len(self.graph_epoch_accuracy_percentage)} final error = {100-self.graph_epoch_accuracy_percentage[-1]}%")
+		plt.title(f"{self.get_save_name()}\nepochs = {len(data)}, final error = {data[-1]:.2f}%")
 
-		#self._plot_data(self.graph_epoch_accuracy_percentage_training_data, sub_from_100=True, smooth=smooth)
-		self._plot_data(self.graph_epoch_accuracy_percentage, sub_from_100=True, smooth=smooth)
+		self._plot_data(data, sub_from_100=False, smooth=smooth)
 		plt.pause(0.2)  # pause a bit so that plots are updated
 		plt.show(block=block)
