@@ -54,11 +54,12 @@ class NeuralNetwork(nn.Module):
 
 
 class Model:
-	def __init__(self, name, settings):
+	def __init__(self, name, settings, experiment=None):
 		super().__init__()
 		self.model = NeuralNetwork(settings)
 		self.name = name
 		self.settings = utils.SaveableList(settings)
+		self.experiment = experiment
 		self.epoch = 0
 		self.learning_rate = 1e-3
 		#self.learning_rate = 2e-4
@@ -191,27 +192,37 @@ class Model:
 		self.saver.add_data_to_save( "settings", 		self.settings 				)
 		self.saver.save()
 
-	def _plot_data(self, data, sub_from_100=False, smooth=10):
-		if sub_from_100:
-			data = 100-np.array(data)
-		plt.plot(data)
-		if smooth>0 and len(data) >= smooth:
-			window = np.ones(int(smooth))/float(smooth)
-			smoothed = np.convolve(data, window, 'valid')
-			plt.plot(np.arange(smooth//2, smooth//2+len(smoothed)),smoothed)
-		
-		
-	def plot(self, smooth = 10, block=False):
-		data = self.logger.data["epoch_error_percentage"]
+	@staticmethod
+	def _plot_start(title="", figure_num=0, xmin=1):
 		plt.figure(num=0)
 		plt.clf()
 		plt.yscale('log')
 		plt.xscale('log')
 		plt.yticks([50,40,30,20,10,5,4,3,2,1])
-		plt.axis([1,len(data),1,50])
 		plt.grid(axis='both', which='both')
-		plt.title(f"{self.get_save_name()}\nepochs = {len(data)}, final error = {data[-1]:.2f}%")
-
-		self._plot_data(data, sub_from_100=False, smooth=smooth)
+		plt.title(title)
+		plt.axis([xmin,100,1,50])
+	
+	@staticmethod
+	def _plot_end(block=False):
+		plt.legend(loc="lower left")
 		plt.pause(0.2)  # pause a bit so that plots are updated
 		plt.show(block=block)
+	
+	@staticmethod	
+	def _plot_data(data, label="", smooth=10, show_unsmoothed=True):
+		xmin, xmax, ymin, ymax = plt.axis()
+		plt.axis([xmin, np.max([xmax,len(data)]), ymin, ymax])
+		if show_unsmoothed:
+			plt.plot(data, label=label)
+		if smooth>0 and len(data) >= smooth:
+			window = np.ones(int(smooth))/float(smooth)
+			smoothed = np.convolve(data, window, 'valid')
+			plt.plot(np.arange(smooth//2, smooth//2+len(smoothed)),smoothed, label=label+" smoothed")
+		
+		
+	def plot(self, smooth = 10, block=False):
+		Model._plot_start(f"{self.get_save_name()}\nepochs = {len(self.logger.data['epoch_error_percentage'])}, final error = {self.logger.data['epoch_error_percentage'][-1]:.2f}%")
+		Model._plot_data(self.logger.data["epoch_error_percentage_training_data"], smooth=smooth, show_unsmoothed=False, label="Train")
+		Model._plot_data(self.logger.data["epoch_error_percentage"], smooth=smooth, show_unsmoothed=False, label="Test")
+		Model._plot_end(block)

@@ -13,10 +13,15 @@ test_batches 		= 16
 #train_batches		= 16
 #test_batches 		= 8
 
+import os
+
 def get_algorithm_lead_time_ms(sample_rate = 48000):
 	return ((n_fft + (timeslices_wanted-1)*hop_length ) / 48000) ** 1000
 
-
+def move_to_data_folder():
+	if not os.getcwd().endswith("data"):
+		os.chdir("data")
+	
 #####################################################################################
 # Console input / output
 import msvcrt
@@ -100,7 +105,6 @@ class SaveableList(list, Saveable):
 
 #####################################################################################
 # Saving and Loading
-import os
 import uuid
 import json
 import glob
@@ -108,11 +112,9 @@ import time
 import torch
 
 class Saver:
-	def __init__(self, filename, folder="data"):
-		if not os.getcwd().endswith(folder):	# move into data subfolder
-			os.chdir(folder)
+	def __init__(self, filename):
+		move_to_data_folder()
 		self.filename = filename
-		self.folder = folder
 		self.data_to_save = {}
 	
 	def add_data_to_save(self, extension, data, is_net=False):
@@ -162,12 +164,19 @@ import datetime
 import matplotlib.pyplot as plt
 import numpy as np
 
+# counting_iteration is True  if settings for [A,B,C] are going to be passed in the format [ [A1, A2, A3], [B1, B2], [C1, C2, C3], etc ]
+# counting_iteration is False if settings for [A,B,C] are going to be passed in the format [ [A1, B1, C1], [A2, B2, C2], [A3, B3, C3], etc ]
+
 class Experiment(Saveable):
-	def __init__(self, name, experiment_options):
+	def __init__(self, name, settings_options, counting_iteration = False):
 		self.name = name
-		self.experiment_options = experiment_options
-		self.iterator_cursor = [0]*len(self.experiment_options)
-		self.experiment = self._get_experiment_from_cursor()
+		self.settings_options = settings_options
+		self.counting_iteration = counting_iteration
+		if self.counting_iteration:
+			self.iterator_cursor = [0]*len(self.settings_options)
+		else:
+			self.iterator_cursor = 0
+		self.settings = self._get_settings_from_cursor()
 		self.saver = Saver(name)
 		self.completed_experiments = {}
 		if self.saver.save_exists():
@@ -184,45 +193,55 @@ class Experiment(Saveable):
 	def from_saveable(self, saveable):
 		self.completed_experiments = saveable
 
-	def _get_experiment_from_cursor(self):
-		ret = []
-		for layer in range(len(self.experiment_options)):
-			ret.append( self.experiment_options[layer][self.iterator_cursor[layer]] )
-		return ret
+	def _get_settings_from_cursor(self):
+		if self.counting_iteration:
+			ret = []
+			for layer in range(len(self.settings_options)):
+				ret.append( self.settings_options[layer][self.iterator_cursor[layer]] )
+			return ret
+		else:
+			return self.settings_options[self.iterator_cursor]
 
 	def iterate_inner(self):	# returns True if it is still iterating, and False when its finished
-		if self.iterator_cursor[0] == -1:	# returned last iteration previous time this was called, so now time to terminate loop
-			return False
-		cursor_layer = 0
-		while True:
-			if cursor_layer == len(self.experiment_options):
-				self.iterator_cursor[0] = -1	# will cause a loop termination next time
-				break
-			self.iterator_cursor[cursor_layer] += 1
-			if self.iterator_cursor[cursor_layer] < len(self.experiment_options[cursor_layer]):
-				break
-			self.iterator_cursor[cursor_layer] = 0
-			cursor_layer += 1
-		return True
+		if self.counting_iteration:
+			if self.iterator_cursor[0] == -1:	# returned last iteration previous time this was called, so now time to terminate loop
+				return False
+			cursor_layer = 0
+			while True:
+				if cursor_layer == len(self.settings_options):
+					self.iterator_cursor[0] = -1	# will cause a loop termination next time
+					break
+				self.iterator_cursor[cursor_layer] += 1
+				if self.iterator_cursor[cursor_layer] < len(self.settings_options[cursor_layer]):
+					break
+				self.iterator_cursor[cursor_layer] = 0
+				cursor_layer += 1
+			return True
+		else:
+			if self.iterator_cursor >= len(self.settings_options):
+				return False
+			else:
+				self.iterator_cursor += 1
+				return True
 
 	def iterate(self):	# returns True if it is still iterating, and False when its finished
-		self.experiment = self._get_experiment_from_cursor()
+		self.settings = self._get_settings_from_cursor()
 		while True:
 			ret = self.iterate_inner()
-			if not self.get_experiment_str() in self.completed_experiments:
+			if not self.get_settings_str() in self.completed_experiments:
 				break
 			if ret == False:
 				break
-			self.experiment = self._get_experiment_from_cursor()
+			self.settings = self._get_settings_from_cursor()
 		now = datetime.datetime.now()
-		print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: Experiment '{self.name}' {self.experiment}")
+		print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: Experiment '{self.name}' {self.settings}")
 		return ret
 	
-	def get_experiment_str(self):
-		return str(self.experiment)
+	def get_settings_str(self):
+		return str(self.settings)
 
 	def experiment_completed(self, results):
-		self.completed_experiments [self.get_experiment_str()] = results
+		self.completed_experiments [self.get_settings_str()] = results
 		self.saver.add_data_to_save("experiment", self)
 		self.saver.save()
 		
