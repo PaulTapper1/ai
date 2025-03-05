@@ -8,6 +8,7 @@ import numpy as np
 
 class SpectrogramFileData():
 	def __init__(self, path, num_per_file = 10):
+		self.path 			= path
 		file_unpack 		= np.load(path)
 		self.data 			= file_unpack['data']
 		self.num_left 		= num_per_file
@@ -23,8 +24,8 @@ class SpectrogramFileData():
 			time_offset = random.randint(0, self.time_slack)
 			spectrogram_db = self.data[:,time_offset:time_offset+utils.timeslices_wanted]
 			self.num_left -= 1
-			return spectrogram_db
-		return None
+			return self.path, time_offset+utils.timeslices_wanted, spectrogram_db
+		return None, None, None
 
 class SpectrogramDataset(Dataset):
 	"""Spectrogram dataset for dialog detection.
@@ -48,6 +49,7 @@ class SpectrogramDataset(Dataset):
 		self.category[1]		= self.extract_category("dialog")
 		self.file_data			= [[None]*SpectrogramDataset.num_file_caches, [None]*SpectrogramDataset.num_file_caches]
 		self.file_cache			= [0, 0]
+		self.returned_points	= []
 
 	def extract_category(self, sub_folder):
 		ret						= {}
@@ -106,7 +108,10 @@ class SpectrogramDataset(Dataset):
 				self.file_data[this_category][this_file_cache] = SpectrogramFileData(path)
 			
 			if self.file_data[this_category][this_file_cache].is_ready():
-				spectrogram_db = self.file_data[this_category][this_file_cache].get_next_sub_spectrogram()
+				path, time_slice, spectrogram_db = self.file_data[this_category][this_file_cache].get_next_sub_spectrogram()
+				if len(self.returned_points)==utils.batch_size:
+					self.returned_points = []
+				self.returned_points.append([path, time_slice])
 				have_found_valid_x = True
 				spectrogram_db = spectrogram_db.astype(np.float32)
 				self.file_cache[this_category] = (self.file_cache[this_category]+1) % SpectrogramDataset.num_file_caches

@@ -4,10 +4,10 @@ import ptau_model
 import torch
 from torch.utils.data import DataLoader
 
-training_data 		= ptau_dataset.SpectrogramDataset("D:/wkspaces/ai_data/ptau", 0) #, transform=ToTensor)
-test_data 			= ptau_dataset.SpectrogramDataset("D:/wkspaces/ai_data/ptau", 1) #, transform=ToTensor)
-train_dataloader 	= DataLoader(training_data, shuffle=True, batch_size=utils.batch_size) #, num_workers=1, pin_memory=True)
-test_dataloader 	= DataLoader(test_data, batch_size=utils.batch_size) #, pin_memory=True)
+training_data 		= ptau_dataset.SpectrogramDataset("D:/wkspaces/ai_data/ptau", 0)
+train_dataloader 	= DataLoader(training_data, shuffle=True, batch_size=utils.batch_size)
+test_data 			= ptau_dataset.SpectrogramDataset("D:/wkspaces/ai_data/ptau", 1)
+test_dataloader 	= DataLoader(test_data, batch_size=utils.batch_size)
 
 #max_epoch = 300
 max_epoch = 5000
@@ -16,8 +16,8 @@ name =  "dialog_detect"
 # [conv2D layer0, conv2D layer1, linear layer0]
 experiment = utils.Experiment(name,
 	[
-		[32, 32, 512, 	"A"],
-		[64, 64, 512, 	"A"],
+		[64, 64, 256, "A"],
+		[64, 64, 512, "A"],
 	], counting_iteration=False )
 
 	# [

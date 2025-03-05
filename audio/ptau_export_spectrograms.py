@@ -125,12 +125,18 @@ def show_spectrogram(spectrogram_dbs, sample_rate=48000, block=False, title=""):
 	plt.pause(0.2)  # pause a bit so that plots are updated
 	plt.show(block=block)
 
-def play_audio_from_dataset_item(dataset_item):
+def play_audio_from_dataset_item(dataset_item, print_info=False):
 	audio_clip = dataset_item["audio"]
 	audio_data = audio_clip["array"]
 	sample_rate = audio_clip["sampling_rate"]
+	if print_info:
+		print(f"play_audio_from_dataset_item path='{audio_clip['path']}' {dataset_item}")
 	sd.play(audio_data, sample_rate)
 	sd.wait()  # Wait for playback to finish
+
+def play_audio_from_huggingface(resource, language, idx):
+	dataset = load_from_huggingface(resource, language)
+	play_audio_from_dataset_item(dataset[idx], print_info=True)
 
 def visualize_data_item(dataset_item, play_audio=True):
 	spectrogram_dbs = get_spectrogram(dataset_item)
@@ -184,7 +190,7 @@ def export_spectrograms_from_dataset(dataset, is_dialog, label):
 		print(f"Progress: {i} / {max_item} ({i/max_item*100:.3f}%) [Total exported = {export_count[0]} non dialog, {export_count[1]} dialog]\r", end="")
 		export_spectrogram_from_dataset_item(dataset[i], is_dialog, label+str(i)+", ")
 	print("\n")
-	
+
 def process_dataset(resource, language, is_dialog):
 	dataset = load_from_huggingface(resource, language)
 	label = f"{resource}, {language}, "

@@ -13,6 +13,7 @@ import sys
 import time
 import ptau_utils as utils
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 import numpy as np
 #from pyinstrument import Profiler
 
@@ -56,20 +57,21 @@ class NeuralNetwork(nn.Module):
 class Model:
 	def __init__(self, name, settings, experiment=None):
 		super().__init__()
-		self.model = NeuralNetwork(settings)
-		self.name = name
-		self.settings = utils.SaveableList(settings)
-		self.experiment = experiment
-		self.epoch = 0
-		self.learning_rate = 1e-3
-		#self.learning_rate = 2e-4
-		self.loss_fn = nn.CrossEntropyLoss()
-		self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.learning_rate)
+		self.model 				= NeuralNetwork(settings)
+		self.name 				= name
+		self.settings 			= utils.SaveableList(settings)
+		self.experiment 		= experiment
+		self.epoch				= 0
+		self.learning_rate 		= 1e-3
+		#self.learning_rate 	= 2e-4
+		self.loss_fn 			= nn.CrossEntropyLoss()
+		self.optimizer 			= torch.optim.SGD(self.model.parameters(), lr=self.learning_rate)
 		self.accuracy_percentage = 0
-		self.logger = utils.Logger(name)
-		self.saver = utils.Saver(self.get_save_name())
-		self.seed_train 	= None
-		self.seed_test 		= 0
+		self.logger				= utils.Logger(name)
+		self.saver 				= utils.Saver(self.get_save_name())
+		self.seed_train 		= None
+		self.seed_test 			= 0
+		self.confidence			= [[[],[]],[[],[]]]	# [should be][thought it was][percentage confidence]
 		if self.saver.save_exists():
 			self.load()
 		else:
@@ -134,7 +136,7 @@ class Model:
 		accuracy_percentage_training_data = correct / count * 100
 		self.logger.set_frame_value("epoch_error_percentage_training_data", 100-accuracy_percentage_training_data)
 
-	def test_loop(self, dataloader):
+	def test_loop(self, dataloader, track_confidence=False):
 		#print("test_loop")
 		# Set the model to evaluation mode - important for batch normalization and dropout layers
 		# Unnecessary in this situation but added for best practices
@@ -144,6 +146,7 @@ class Model:
 		count = 0
 		batches = utils.test_batches
 		random.seed(self.seed_test)
+		self.confidence		= [[[],[]],[[],[]]]	# [should be][thought it was][percentage confidence]
 
 		# Evaluating the model with torch.no_grad() ensures that no gradients are computed during test mode
 		# also serves to reduce unnecessary gradient computations and memory usage for tensors with requires_grad=True
@@ -161,12 +164,23 @@ class Model:
 				this_correct = (pred.argmax(1) == y).type(torch.float).sum().item()
 				correct += this_correct
 				count += utils.batch_size
+				
+				# calculate confidences
+				if track_confidence:
+					pred_argmax	 = pred.argmax(1).cpu()
+					pred_softmax = pred.softmax(1).cpu()
+					for i in np.arange(len(X)):
+						self.confidence[y[i]][pred_argmax[i]].append(pred_softmax[i,1])
+						if y[i]==0 and pred_argmax[i]!=y[i]:	# false positive (ie- it is categorised as non-dialog but it thinks it is dialog)
+							[path, time_slice] = dataloader.dataset.returned_points[i]
+							#print(f"False Positive {pred_softmax[i][1]*100:0.1f}%: path='{path}', time_slice={time_slice}")
 
 		test_loss /= num_batches
 		correct /= count
 		self.accuracy_percentage = 100*correct
 		self.logger.set_frame_value("epoch",self.epoch)
 		self.logger.set_frame_value("epoch_error_percentage",100-self.accuracy_percentage)
+		#self.plot_confidence()
 
 	def get_device(self):
 		return next(self.model.parameters()).device
@@ -202,10 +216,12 @@ class Model:
 		plt.grid(axis='both', which='both')
 		plt.title(title)
 		plt.axis([xmin,100,1,50])
+		plt.xlabel("Epochs")
+		plt.ylabel("Error %")
 	
 	@staticmethod
-	def _plot_end(block=False):
-		plt.legend(loc="lower left")
+	def _plot_end(block=False, legend_loc="lower left"):
+		plt.legend(loc=legend_loc)
 		plt.pause(0.2)  # pause a bit so that plots are updated
 		plt.show(block=block)
 	
@@ -220,9 +236,25 @@ class Model:
 			smoothed = np.convolve(data, window, 'valid')
 			plt.plot(np.arange(smooth//2, smooth//2+len(smoothed)),smoothed, label=label+" smoothed")
 		
-		
 	def plot(self, smooth = 10, block=False):
 		Model._plot_start(f"{self.get_save_name()}\nepochs = {len(self.logger.data['epoch_error_percentage'])}, final error = {self.logger.data['epoch_error_percentage'][-1]:.2f}%")
 		Model._plot_data(self.logger.data["epoch_error_percentage_training_data"], smooth=smooth, show_unsmoothed=False, label="Train")
 		Model._plot_data(self.logger.data["epoch_error_percentage"], smooth=smooth, show_unsmoothed=False, label="Test")
 		Model._plot_end(block)
+
+	def plot_confidence(self, block=False):
+		fig = plt.figure(num=2, figsize=[10,8])
+		plt.clf()
+		situations = [[0,0],[1,1],[1,0],[0,1]]
+		title_strs = ["Negative", "Positive"]
+		fig, ax = plt.subplots(num=2)
+		for situation in situations:
+			predicition_is_true = situation[0]==situation[1]
+			label  = "True " if predicition_is_true else "False "
+			label += title_strs[situation[1]]
+			ax.hist(self.confidence[situation[0]][situation[1]], range=(0,1), bins=40, label=label)
+		ax.set_title(self.get_save_name()+" Confidences")
+		ax.set_xlabel("Softmax Confidence")			
+		Model._plot_end(block, legend_loc="upper center")
+		
+		

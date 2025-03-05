@@ -10,8 +10,9 @@ timeslices_wanted	= 32		# num of timeslices (hops) that are fed into the deep le
 batch_size 			= 512
 train_batches		= 32
 test_batches 		= 16
-#train_batches		= 16
-#test_batches 		= 8
+#batch_size 			= 128
+#train_batches		= 8
+#test_batches 		= 4
 
 import os
 
@@ -150,7 +151,8 @@ class Saver:
 
 	def load_data_into(self, extension, obj, is_net=False):
 		#loaded_data = torch.load(os.getcwd()+"\\"+self.filename+"."+extension, weights_only=False)
-		loaded_data = torch.load(self.filename+"."+extension, weights_only=False)
+		device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+		loaded_data = torch.load(self.filename+"."+extension, weights_only=False, map_location=device)
 		if is_net:
 			obj.load_state_dict(loaded_data)
 			obj.eval()  					# Set the net to evaluation mode
@@ -185,7 +187,7 @@ class Experiment(Saveable):
 		global plot_figure_num
 		self.plot_figure_num = plot_figure_num
 		plot_figure_num += 1
-		self.plot()
+		#self.plot()
 
 	def to_saveable(self):
 		return self.completed_experiments
