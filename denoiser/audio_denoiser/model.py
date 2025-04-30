@@ -5,16 +5,18 @@ class DenoisingAutoencoder(nn.Module):
     def __init__(self):
         super().__init__()
         padding = 0
+        chans1 = 16
+        chans2 = 64
         self.encoder = nn.Sequential(
-            nn.Conv2d(1, 8, kernel_size=3, stride=2, padding=padding),
+            nn.Conv2d(1, chans1, kernel_size=3, stride=2, padding=padding),
             nn.ReLU(),
-            nn.Conv2d(8, 16, kernel_size=3, stride=2, padding=padding),
+            nn.Conv2d(chans1, chans2, kernel_size=3, stride=2, padding=padding),
             nn.ReLU(),
         )
         self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(16, 8, kernel_size=4, stride=2, padding=padding),
+            nn.ConvTranspose2d(chans2, chans1, kernel_size=4, stride=2, padding=padding),
             nn.ReLU(),
-            nn.ConvTranspose2d(8, 1, kernel_size=4, stride=2, padding=padding),
+            nn.ConvTranspose2d(chans1, 1, kernel_size=4, stride=2, padding=padding),
             nn.ReLU()
         )
 
