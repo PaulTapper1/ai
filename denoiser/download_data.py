@@ -13,16 +13,18 @@ print(train_dataset[0])
 import os
 
 # Define directories to save the audio files
-os.makedirs("data/clean", exist_ok=True)
-os.makedirs("data/noisy", exist_ok=True)
+os.makedirs("data/train/clean", exist_ok=True)
+os.makedirs("data/train/noisy", exist_ok=True)
+os.makedirs("data/test/clean", exist_ok=True)
+os.makedirs("data/test/noisy", exist_ok=True)
 
 import soundfile as sf  # pip install soundfile
 
 # Save training data
 for i, sample in enumerate(train_dataset):
 	print(f"train_dataset: {i}\r", end="")
-	clean_path = f"data/clean/train_{i}.wav"
-	noisy_path = f"data/noisy/train_{i}.wav"
+	clean_path = f"data/train/clean/train_{i}.wav"
+	noisy_path = f"data/train/noisy/train_{i}.wav"
 	clean_audio = sample["clean"]["array"]
 	noisy_audio = sample["noisy"]["array"]
 	sampling_rate = sample["clean"]["sampling_rate"]  # both clean and noisy have same rate
@@ -33,8 +35,8 @@ print("train_dataset completed")
 # Save testing data
 for i, sample in enumerate(test_dataset):
 	print(f"test_dataset: {i}\r", end="")
-	clean_path = f"data/clean/test_{i}.wav"
-	noisy_path = f"data/noisy/test_{i}.wav"
+	clean_path = f"data/test/clean/test_{i}.wav"
+	noisy_path = f"data/test/noisy/test_{i}.wav"
 	clean_audio = sample["clean"]["array"]
 	noisy_audio = sample["noisy"]["array"]
 	sampling_rate = sample["clean"]["sampling_rate"]  # both clean and noisy have same rate
