@@ -197,6 +197,36 @@ def process_dataset(resource, language, is_dialog):
 	export_spectrograms_from_dataset(dataset, is_dialog, label)
 	#visualize_some_data_items(dataset)
 
+class SpectrogramFileData():
+	def __init__(self, path, num_per_file=-1):
+		self.path 			= path
+		file_unpack 		= np.load(path)
+		self.data 			= file_unpack['data']
+		self.num_left 		= num_per_file
+		freqbins, timebins 	= np.shape(self.data)
+		self.time_slack 	= timebins-utils.timeslices_wanted
+		#print(f"Caching {path}, time_slack = {self.time_slack}")
+		
+	def is_ready(self):
+		return self.num_left!=0 and self.time_slack>=0
+	
+	def get_sub_spectrogram_with_info(self, time_offset):
+		if self.time_slack>=0:
+			spectrogram_db = self.data[:,time_offset:time_offset+utils.timeslices_wanted].astype(np.float32)
+			self.num_left -= 1
+			return self.path, time_offset+utils.timeslices_wanted, spectrogram_db
+		return None, None, None
+
+	def get_sub_spectrogram(self, time_offset):
+		path, time_slice, spectrogram_db = self.get_sub_spectrogram_with_info(time_offset)
+		return spectrogram_db
+	
+	def get_random_sub_spectrogram_with_info(self):
+		if self.time_slack>=0:
+			time_offset = random.randint(0, self.time_slack)
+			return self.get_sub_spectrogram_with_info(time_offset)
+		return None, None, None
+
 if __name__ == '__main__':
 	# process_dataset( "mozilla-foundation/common_voice_11_0", "ja"		, True )
 	# process_dataset( "agkphysics/AudioSet", ""							, False )

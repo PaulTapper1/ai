@@ -3,29 +3,8 @@ import os
 from torch.utils.data import Dataset, DataLoader
 import torch
 import random
-import ptau_export_spectrograms
+import ptau_export_spectrograms as spectrograms
 import numpy as np
-
-class SpectrogramFileData():
-	def __init__(self, path, num_per_file = 10):
-		self.path 			= path
-		file_unpack 		= np.load(path)
-		self.data 			= file_unpack['data']
-		self.num_left 		= num_per_file
-		freqbins, timebins 	= np.shape(self.data)
-		self.time_slack 	= timebins-utils.timeslices_wanted
-		#print(f"Caching {path}, time_slack = {self.time_slack}")
-		
-	def is_ready(self):
-		return self.num_left>0 and self.time_slack>=0
-		
-	def get_next_sub_spectrogram(self):
-		if self.time_slack>=0:
-			time_offset = random.randint(0, self.time_slack)
-			spectrogram_db = self.data[:,time_offset:time_offset+utils.timeslices_wanted]
-			self.num_left -= 1
-			return self.path, time_offset+utils.timeslices_wanted, spectrogram_db
-		return None, None, None
 
 class SpectrogramDataset(Dataset):
 	"""Spectrogram dataset for dialog detection.
@@ -105,15 +84,15 @@ class SpectrogramDataset(Dataset):
 				index = index_line.split(", ")
 				filename = index[3].strip()
 				path = os.path.join(self.category[this_category]["dir"], filename+".npz")
-				self.file_data[this_category][this_file_cache] = SpectrogramFileData(path)
+				self.file_data[this_category][this_file_cache] = spectrograms.SpectrogramFileData(path, num_per_file=10)
 			
 			if self.file_data[this_category][this_file_cache].is_ready():
-				path, time_slice, spectrogram_db = self.file_data[this_category][this_file_cache].get_next_sub_spectrogram()
+				path, time_slice, spectrogram_db = self.file_data[this_category][this_file_cache].get_random_sub_spectrogram_with_info()
 				if len(self.returned_points)==utils.batch_size:
 					self.returned_points = []
 				self.returned_points.append([path, time_slice])
 				have_found_valid_x = True
-				spectrogram_db = spectrogram_db.astype(np.float32)
+				#spectrogram_db = spectrogram_db.astype(np.float32)
 				self.file_cache[this_category] = (self.file_cache[this_category]+1) % SpectrogramDataset.num_file_caches
 			else:
 				self.file_data[this_category][this_file_cache]=None
@@ -133,6 +112,6 @@ if __name__ == '__main__':
 		sample 			= dataset[idx]
 		spectrogram_db 	= sample[0]
 		category 		= sample[1]
-		ptau_export_spectrograms.show_spectrogram(spectrogram_db, title=f"Index {idx}. Category = {category}")	# display the spectrogram graphically
+		spectrograms.show_spectrogram(spectrogram_db, title=f"Index {idx}. Category = {category}")	# display the spectrogram graphically
 		utils.wait_for_any_keypress()
 		

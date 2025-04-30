@@ -15,7 +15,17 @@ import ptau_utils as utils
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import numpy as np
+from collections import OrderedDict
 #from pyinstrument import Profiler
+
+def count_vars(module):
+	return sum([np.prod(p.shape) for p in module.parameters()])
+
+def get_save_name(name, settings):
+	filename = name+"_"
+	for setting in settings:
+	  filename += str(setting)+"_"
+	return filename
 
 # Note - network is designed to identify whether an input spectrogram is dialog or non dialog
 # the spectrogram is set up using the settings from ptau_utils
@@ -23,41 +33,57 @@ import numpy as np
 
 # set up neural network
 class NeuralNetwork(nn.Module):
-	def __init__(self, settings):
+	def __init__(self, num_conv_layers=2, num_linear_layers=1, num_final_categories=2, settings=[]):
 		super().__init__()
-		#self.flatten = nn.Flatten()
-		conv2d_0 = settings[0]
-		conv2d_1 = settings[1]
-		linear_0 = settings[2]
-		self.linear_relu_stack = nn.Sequential(
-			nn.Conv2d(1, conv2d_0, kernel_size=3, padding=1),  # Input: 1 channel (grayscale), Output: conv2d_0 channels
-			nn.ReLU(),
-			nn.MaxPool2d(kernel_size=2, stride=2),  # Downsample by 2
-			nn.Conv2d(conv2d_0, conv2d_1, kernel_size=3, padding=1),  # Input: conv2d_0 channels, Output: conv2d_1 channels
-			nn.ReLU(),
-			nn.MaxPool2d(kernel_size=2, stride=2),   # Downsample by 2 again
-			nn.Flatten(),
-			nn.Linear(conv2d_1 * utils.num_freq_bins//4 * utils.timeslices_wanted//4, linear_0),
-			nn.ReLU(),
-			nn.Linear(linear_0, 2),
-			#nn.LogSoftmax(),
-			)
-		#print(self.linear_relu_stack)
+		layer_size = settings
+		num_layers = num_conv_layers + num_linear_layers
+		for layer in np.arange(num_layers):
+			if layer>=len(layer_size):
+				layer_size.append(1)
+		combined_downsample = 2**num_conv_layers
+		model_stack = []
+		# add convolution layers ( utils.num_freq_bins x utils.timeslices_wanted x 1 channel )
+		last_layer_size=1	# actually used to mean "channels" for convolution layers
+		for layer in np.arange(num_conv_layers):
+			this_layer_size = layer_size[layer]
+			model_stack.append( (str(len(model_stack)), nn.Conv2d(last_layer_size, this_layer_size, kernel_size=3, padding=1)))
+			model_stack.append( (str(len(model_stack)), nn.ReLU()))
+			model_stack.append( (str(len(model_stack)), nn.MaxPool2d(kernel_size=2, stride=2)))  									# Downsample by 2
+			last_layer_size=this_layer_size
+		# add linear layers		
+		model_stack.append( (str(len(model_stack)), nn.Flatten()))
+		last_layer_size *= utils.num_freq_bins//combined_downsample * utils.timeslices_wanted//combined_downsample
+		for layer in num_conv_layers+np.arange(num_linear_layers):
+			this_layer_size = layer_size[layer]
+			model_stack.append( (str(len(model_stack)), nn.Linear(last_layer_size, this_layer_size)))
+			model_stack.append( (str(len(model_stack)), nn.ReLU()))
+		model_stack.append( (str(len(model_stack)), nn.Linear(this_layer_size, num_final_categories)))
 
+		self.linear_relu_stack = nn.Sequential(OrderedDict(model_stack))
+		print(self.linear_relu_stack)
+		print(f"Number of parameters = {count_vars(self):,}")
 		device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 		self = self.to(device)
 		print("Device = ",device)
-
+	
 	def forward(self, x):
 		#x = self.flatten(x)
 		logits = self.linear_relu_stack(x)
 		return logits
-
+		
+	def confidence(self, sub_spectrogram, category=1, device_name="cpu"):
+		device = torch.device(device_name)
+		x = torch.from_numpy(sub_spectrogram).unsqueeze(0).unsqueeze(0).to(device)	# unsqueeze for 1 channel (grayscale), unsqueeze again for a "batch" of 1 data point
+		self.linear_relu_stack = self.linear_relu_stack.to(device)
+		logits = self.forward(x)[0].cpu()
+		confidence = logits.softmax(0)
+		#print(f"logits = {logits}, confidence={confidence}")
+		return confidence[category].detach().numpy()
 
 class Model:
-	def __init__(self, name, settings, experiment=None):
+	def __init__(self, name, settings=[], experiment=None):
 		super().__init__()
-		self.model 				= NeuralNetwork(settings)
+		self.model 				= NeuralNetwork(settings=settings, num_conv_layers=len(settings)-2)
 		self.name 				= name
 		self.settings 			= utils.SaveableList(settings)
 		self.experiment 		= experiment
@@ -186,10 +212,7 @@ class Model:
 		return next(self.model.parameters()).device
 
 	def get_save_name(self):
-		filename = self.name+"_"
-		for setting in self.settings:
-		  filename += str(setting)+"_"
-		return filename
+		return get_save_name(self.name, self.settings)
 
 	def load(self):
 		self.saver.load_data_into("model", 		self.model, 	is_net=True	)
@@ -199,6 +222,7 @@ class Model:
 		self.epoch 					= self.logger.get_latest_value("epoch")
 		self.accuracy_percentage 	= 100-self.logger.get_latest_value("epoch_error_percentage")
 		print(f"Loaded model {self.name} epochs = {self.epoch} accuracy = {self.accuracy_percentage}")
+		#print(self.model.linear_relu_stack)
 
 	def save(self):
 		self.saver.add_data_to_save( "model",			self.model, 	is_net=True )

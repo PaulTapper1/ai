@@ -16,8 +16,10 @@ name =  "dialog_detect"
 # [conv2D layer0, conv2D layer1, linear layer0]
 experiment = utils.Experiment(name,
 	[
+		#[64, 256, "A"],
 		[64, 64, 256, "A"],
-		[64, 64, 512, "A"],
+		#[64, 64, 512, "A"],
+		#[64, 64, 64, 256, "A"],
 	], counting_iteration=False )
 
 	# [
