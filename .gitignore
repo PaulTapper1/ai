@@ -15,3 +15,4 @@ ptrl/.idea/inspectionProfiles/profiles_settings.xml
 *.wav
 *.png
 denoiser/results/
+denoiser/cache/

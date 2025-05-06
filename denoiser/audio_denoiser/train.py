@@ -5,6 +5,7 @@ from torch.utils.data import DataLoader
 from audio_denoiser.dataset import AudioDenoisingDataset
 from audio_denoiser.model import DenoisingAutoencoder
 from audio_denoiser.viewer import Viewer
+import time
 
 BATCH_SIZE = 16
 NUM_BATCHES_PER_EPOCH = 256 # 64 # 
@@ -83,13 +84,16 @@ def train_model():
         viewer.view_data(save_data["test_loss"], "test_loss")
 
     while save_data["epoch"] < EPOCHS:
+        start_time = time.time()
         train_loss = train(model, train_loader, optimizer, criterion)
         test_loss = test(model, test_loader, optimizer, criterion)
         save_data["epoch"] += 1
         save_data["test_loss"].append(test_loss)
         torch.save(model.state_dict(), SAVE_NAME+".mdl")
         torch.save(save_data, SAVE_NAME+".dat")
-        print(f"Epoch {save_data['epoch']}/{EPOCHS}, train_loss: {train_loss:.4f}, test_loss: {test_loss:.4f}")
+        end_time = time.time()
+        time_per_k = (end_time-start_time)*1000/(BATCH_SIZE*(NUM_BATCHES_PER_EPOCH+NUM_BATCHES_PER_TEST))
+        print(f"Epoch {save_data['epoch']}/{EPOCHS}, train_loss: {train_loss:.4f}, test_loss: {test_loss:.4f}, time per k: {time_per_k:.4f}")
         viewer.view_data(save_data["test_loss"], "test_loss")
 
 if __name__ == "__main__":
