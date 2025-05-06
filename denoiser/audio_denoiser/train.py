@@ -11,6 +11,8 @@ NUM_BATCHES_PER_EPOCH = 256 # 64 #
 EPOCHS = 10000
 NUM_BATCHES_PER_TEST = 823//BATCH_SIZE + 1
 SAVE_NAME = "denoiser"
+#LEARNING_RATE = 1e-3
+LEARNING_RATE = 1e-4
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device = {device}")
@@ -65,7 +67,7 @@ def train_model():
 
     model = DenoisingAutoencoder().to(device)
     criterion = torch.nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
     save_data = {
                     "epoch" : 0,
@@ -74,11 +76,10 @@ def train_model():
     viewer = Viewer()
 
     if os.path.exists(SAVE_NAME+".mdl"):
-        print("Found pre-saved model")
         model.load_state_dict(torch.load(SAVE_NAME+".mdl", map_location=device, weights_only=True))
         model.eval()
         save_data = torch.load(SAVE_NAME+".dat", weights_only=True)
-        #print(save_data)
+        print(f"Found pre-saved model with {save_data['epoch']} epochs")
         viewer.view_data(save_data["test_loss"], "test_loss")
 
     while save_data["epoch"] < EPOCHS:

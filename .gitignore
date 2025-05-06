@@ -13,3 +13,5 @@ ptrl/.idea/ptrl.iml
 ptrl/.idea/vcs.xml
 ptrl/.idea/inspectionProfiles/profiles_settings.xml
 *.wav
+*.png
+denoiser/results/
