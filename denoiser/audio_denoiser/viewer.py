@@ -17,7 +17,7 @@ class Viewer:
         plt.yticks([0.1,0.05,0.04,0.03,0.02,0.01])
         plt.grid(axis='both', which='both')
         plt.title(title)
-        plt.axis([xmin,100,0.01,0.1])
+        plt.axis([xmin,100,0.005,0.1])
         plt.xlabel("Epochs")
         plt.ylabel("Error %")
 
@@ -26,14 +26,15 @@ class Viewer:
         plt.pause(0.5)  # pause a bit so that plots are updated
         plt.show(block=block)
 
-    def add_data(self, data, label="", smooth=[10,100], show_unsmoothed=True):
+    def add_data(self, data, label="", smooth=[100,10,1]):
         xmin, xmax, ymin, ymax = plt.axis()
         plt.axis([xmin, np.max([xmax,len(data)]), ymin, ymax])
-        if show_unsmoothed:
-            plt.plot(np.arange(1, len(data) + 1), data, label=label)
+        # if show_unsmoothed:
+            # plt.plot(np.arange(1, len(data) + 1), data, label=label)
         for smooth_window in smooth:
-            if len(data) >= smooth_window:
+            if len(data) >= smooth_window*2:
                 window = np.ones(int(smooth_window))/float(smooth_window)
                 smoothed = np.convolve(data, window, 'valid')
-                plt.plot(np.arange(smooth_window//2, smooth_window//2+len(smoothed)),smoothed, label=label+" smoothed"+str(smooth_window))
+                plt.plot(np.arange(smooth_window//2, smooth_window//2+len(smoothed)),smoothed, label=label+" "+str(smooth_window))
+                break
         

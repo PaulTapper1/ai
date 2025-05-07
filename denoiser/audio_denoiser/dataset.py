@@ -5,24 +5,20 @@ import numpy as np
 from torch.utils.data import Dataset
 import os
 from pathlib import Path
+import audio_denoiser.settings as settings
 
-SAMPLE_RATE = 16000
-N_FFT = 512
-HOP_LENGTH = 128
-NUM_HOPS = 402 #(3.2 secs)
-
-def __fix_length__(data, length=HOP_LENGTH*NUM_HOPS):
+def __fix_length__(data, length=settings.HOP_LENGTH*settings.NUM_HOPS):
     data_len = len(data)
     if data_len >= length:
         return data[:length]
     return np.pad(data, (0,length-data_len))
 
-def __fix_length_spec__(spec, length=HOP_LENGTH*NUM_HOPS):
-    if spec.shape[1] < NUM_HOPS:
-        pad_width = NUM_HOPS - spec.shape[1]
+def __fix_length_spec__(spec, length=settings.HOP_LENGTH*settings.NUM_HOPS):
+    if spec.shape[1] < settings.NUM_HOPS:
+        pad_width = settings.NUM_HOPS - spec.shape[1]
         spec = np.pad(spec, ((0, 0), (0, pad_width)), mode='constant')
     else:
-        spec = spec[:, :NUM_HOPS]
+        spec = spec[:, :settings.NUM_HOPS]
     return spec
 
 class AudioDenoisingDataset(Dataset):
@@ -45,11 +41,11 @@ class AudioDenoisingDataset(Dataset):
             noisy_spec = np.load(noisy_spec_filename+".npy")
             clean_spec = np.load(clean_spec_filename+".npy")
         else:
-            noisy_wave, _ = librosa.load(noisy_wav_filename, sr=SAMPLE_RATE)
-            clean_wave, _ = librosa.load(clean_wav_filename, sr=SAMPLE_RATE)
+            noisy_wave, _ = librosa.load(noisy_wav_filename, sr=settings.SAMPLE_RATE)
+            clean_wave, _ = librosa.load(clean_wav_filename, sr=settings.SAMPLE_RATE)
 
-            noisy_spec = librosa.stft(noisy_wave, n_fft=N_FFT, hop_length=HOP_LENGTH)
-            clean_spec = librosa.stft(clean_wave, n_fft=N_FFT, hop_length=HOP_LENGTH)
+            noisy_spec = librosa.stft(noisy_wave, n_fft=settings.N_FFT, hop_length=settings.HOP_LENGTH)
+            clean_spec = librosa.stft(clean_wave, n_fft=settings.N_FFT, hop_length=settings.HOP_LENGTH)
             
             np.save(noisy_spec_filename, noisy_spec)
             np.save(clean_spec_filename, clean_spec)
