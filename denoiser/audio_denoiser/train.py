@@ -12,8 +12,8 @@ NUM_BATCHES_PER_EPOCH = 256 # 64 #
 EPOCHS = 10000
 NUM_BATCHES_PER_TEST = 823//BATCH_SIZE + 1
 SAVE_NAME = "denoiser"
-#LEARNING_RATE = 1e-3
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 1e-3
+#LEARNING_RATE = 1e-4
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device = {device}")

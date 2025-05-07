@@ -3,9 +3,9 @@ import numpy as np
 
 #DNN_CHANNELS = [8, 16]
 #DNN_CHANNELS = [16, 64]
-#DNN_CHANNELS = [32, 64]
+DNN_CHANNELS = [32, 64]
 #DNN_CHANNELS = [16, 32, 64]
-DNN_CHANNELS = [32, 64, 128]
+#DNN_CHANNELS = [32, 64, 128]
 
 def count_vars(module):
     return sum([np.prod(p.shape) for p in module.parameters()])
@@ -16,18 +16,18 @@ class DenoisingAutoencoder(nn.Module):
         padding = 0
         chans0 = DNN_CHANNELS[0]
         chans1 = DNN_CHANNELS[1]
-        chans2 = DNN_CHANNELS[2]
+        #chans2 = DNN_CHANNELS[2]
         self.encoder = nn.Sequential(
             nn.Conv2d(1, chans0, kernel_size=3, stride=2, padding=padding),
             nn.ReLU(),
             nn.Conv2d(chans0, chans1, kernel_size=3, stride=2, padding=padding),
             nn.ReLU(),
-            nn.Conv2d(chans1, chans2, kernel_size=3, stride=2, padding=padding),
-            nn.ReLU(),
+            # nn.Conv2d(chans1, chans2, kernel_size=3, stride=2, padding=padding),
+            # nn.ReLU(),
         )
         self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(chans2, chans1, kernel_size=4, stride=2, padding=padding),
-            nn.ReLU(),
+            # nn.ConvTranspose2d(chans2, chans1, kernel_size=4, stride=2, padding=padding),
+            # nn.ReLU(),
             nn.ConvTranspose2d(chans1, chans0, kernel_size=4, stride=2, padding=padding),
             nn.ReLU(),
             nn.ConvTranspose2d(chans0, 1, kernel_size=4, stride=2, padding=padding),
@@ -36,12 +36,9 @@ class DenoisingAutoencoder(nn.Module):
         print(f"Number of parameters = {count_vars(self):,}")
 
 
-    def forward(self, x):
-        #print(f"DenoisingAutoencoder.forward 1: x = {x.shape}");
-        x = self.encoder(x)
-        #print(f"DenoisingAutoencoder.forward 2: x = {x.shape}");
-        x = self.decoder(x)
-        #print(f"DenoisingAutoencoder.forward 3: x = {x.shape}");
-        x = x[:,:,:257,:]
-        #print(f"DenoisingAutoencoder.forward 4: x = {x.shape}");
-        return x
+    def forward(self, x0):
+        x1 = self.encoder(x0)
+        x2 = self.decoder(x1)
+        x3 = x2[:,:,:257,:]
+        #print(f"DenoisingAutoencoder.forward x0 = {x0.shape}, x1 = {x1.shape}, x2 = {x2.shape}, x3 = {x3.shape}");
+        return x3

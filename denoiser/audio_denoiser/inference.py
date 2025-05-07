@@ -4,7 +4,7 @@ import librosa
 import numpy as np
 import matplotlib.pyplot as plt
 from audio_denoiser.model import DenoisingAutoencoder
-from audio_denoiser.dataset import __fix_length__
+from audio_denoiser.dataset import __fix_length__, __fix_length_spec__
 import soundfile as sf
 import sounddevice as sd
 
@@ -20,14 +20,16 @@ def denoise_audio(file_path, model_path=SAVE_NAME+".mdl", save_path="", visualiz
     model.eval()
 
     noisy_wave, _ = librosa.load(file_path, sr=SAMPLE_RATE)
-    noisy_wave = __fix_length__( noisy_wave )
+    #noisy_wave = __fix_length__( noisy_wave )
     noisy_spec = librosa.stft(noisy_wave, n_fft=N_FFT, hop_length=HOP_LENGTH)
+    noisy_spec = __fix_length_spec__( noisy_spec )
     noisy_mag = torch.tensor(np.abs(noisy_spec), dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(device)
 
     with torch.no_grad():
         cleaned_mag = model(noisy_mag).squeeze().cpu().numpy()
 
     phase = np.angle(noisy_spec)
+    print(f"denoise_audio noisy_mag = {noisy_mag.shape}, cleaned_mag = {cleaned_mag.shape}, noisy_spec = {noisy_spec.shape}, phase = {phase.shape}, ");
     reconstructed = librosa.istft(cleaned_mag * np.exp(1j * phase), hop_length=HOP_LENGTH)
 
     if play_audio:

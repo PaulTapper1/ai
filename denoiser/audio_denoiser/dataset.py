@@ -9,7 +9,7 @@ from pathlib import Path
 SAMPLE_RATE = 16000
 N_FFT = 512
 HOP_LENGTH = 128
-NUM_HOPS = 406 #(3.2 secs)
+NUM_HOPS = 402 #(3.2 secs)
 
 def __fix_length__(data, length=HOP_LENGTH*NUM_HOPS):
     data_len = len(data)
